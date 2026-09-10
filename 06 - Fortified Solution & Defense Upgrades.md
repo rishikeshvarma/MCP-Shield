@@ -6,15 +6,15 @@
 
 ## 🛡️ Executive Defense Mapping Matrix
 
-| Vulnerability & Cross-Domain Gap                      | Why Existing Solutions Fail                                                            | How MCP-Shield Solves It (Our Fortified Defense)                                                                               |
-| :---------------------------------------------------- | :------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------- |
-| **1. Natural Language Prompt Injection**              | Traditional WAFs check for fixed code syntax (`DROP TABLE`, `<script>`).               | **3-Tier Cascade & Fine-Tuned SLM**: Tier 3 extracts structured intent manifests from natural language prose.                  |
-| **2. Ingress-Only Tool Output Attacks**               | LLM Guardrails & DLP only scan user input; ignore tool output text streams.            | **Bidirectional Semantic Taint Engine**: Wraps unverified tool output in `__tainted_source__` cryptographic tags.              |
-| **3. Kernel-Level Syscall Ignorance**                 | OS Sandboxes (gVisor) permit legal API database calls even if triggered by injection.  | **Hybrid Semantic-Syscall Sandbox**: MCP-Shield validates protocol intent first, then executes tool inside gVisor.             |
-| **4. Multi-Turn State Graph Drift**                   | Stateless proxies evaluate each turn in isolation; miss split multi-turn attacks.      | **Sliding-Window State Graph Tracker**: Evaluates cumulative semantic delta drift across multi-turn trajectories.              |
-| **5. Asymmetric Tool Description Poisoning**          | Proxies check JSON schema validity but ignore malicious text inside tool descriptions. | **Cryptographic Capability Pinning**: Cryptographically hashes tool manifests (SHA-256) on startup; blocks runtime edits.      |
-| **6. Monolithic Credential Impersonation**            | IAM/OAuth verifies token validity, but cannot detect hijacked agent tool execution.    | **Dynamic Privilege Scoping**: Intercepts user JWT/mTLS context to assert real-time workspace RBAC maps.                       |
-| **7. API Token Bloat & Latency ("Denial of Wallet")** | Cloud LLM checkers add 1-3s delay and thousands in API token costs.                    | **Progressive Disclosure Compression**: Local side-car SLM (Qwen-2.5/Llama-3 via vLLM/ONNX) achieves **sub-50ms** decisioning. |
+|Vulnerability & Cross-Domain Gap|Why Existing Solutions Fail|How MCP-Shield Solves It (Our Fortified Defense)|
+|:--|:--|:--|
+|**1. Natural Language Prompt Injection**|Traditional WAFs check for fixed code syntax (`DROP TABLE`, `<script>`).|**3-Tier Cascade & Fine-Tuned SLM**: Tier 3 outputs a constrained ALLOW/DENY verdict from natural-language prose; the rest of the authorization manifest is filled in programmatically from already-parsed request data.|
+|**2. Ingress-Only Tool Output Attacks**|LLM Guardrails & DLP only scan user input; ignore tool output text streams.|**Bidirectional Semantic Taint Engine**: Wraps unverified tool output in `__tainted_source__` cryptographic tags.|
+|**3. Kernel-Level Syscall Ignorance**|OS Sandboxes (gVisor) permit legal API database calls even if triggered by injection.|**Hybrid Semantic-Syscall Sandbox**: MCP-Shield validates protocol intent first, then executes tool inside gVisor.|
+|**4. Multi-Turn State Graph Drift**|Stateless proxies evaluate each turn in isolation; miss split multi-turn attacks.|**Sliding-Window State Graph Tracker**: Evaluates cumulative semantic delta drift across multi-turn trajectories.|
+|**5. Asymmetric Tool Description Poisoning**|Proxies check JSON schema validity but ignore malicious text inside tool descriptions.|**Cryptographic Capability Pinning**: Cryptographically hashes tool manifests (SHA-256) on startup; blocks runtime edits.|
+|**6. Monolithic Credential Impersonation**|IAM/OAuth verifies token validity, but cannot detect hijacked agent tool execution.|**Dynamic Privilege Scoping**: Intercepts user JWT/mTLS context to assert real-time workspace RBAC maps.|
+|**7. API Token Bloat & Latency ("Denial of Wallet")**|Cloud LLM checkers add 1-3s delay and thousands in API token costs.|**Progressive Disclosure Compression**: Local side-car SLM (Qwen-2.5/Llama-3 via vLLM/ONNX) achieves **sub-50ms** decisioning.|
 
 ---
 
@@ -25,12 +25,12 @@ graph TD
     Payload["Incoming Multi-Agent Payload (JSON-RPC)"] --> Decorator["MCP-SHIELD LAYER (@shield decorator)"]
     
     subgraph Cascade["3-Tier Adaptive Hot-Path Cascade (<50ms Target)"]
-        Decorator --> T1["Tier 1: Structural JSON-Schema Spec Check (0.5ms)"]
+        Decorator --> T1["Tier 1: Header Allowlist + Structural/Field Check (0.5ms)"]
         T1 -->|Valid Structure| T2["Tier 2: Vector Distance & Entropy Filter (3-5ms)"]
         T1 -->|Shell Operators Detected| Deny["ABORT: SecurityTamperingError"]
         
         T2 -->|"Low Anomaly Score < 0.75"| Pass["ALLOW / Forward Packet"]
-        T2 -->|"High Anomaly Score > 0.75"| T3["Tier 3: Local SLM Intent Classifier (30-40ms)"]
+        T2 -->|"High Anomaly Score > 0.75"| T3["Tier 3: Local SLM, Constrained Verdict (30-40ms)"]
 
         
         T3 -->|Malicious Intent Class| Deny
@@ -46,15 +46,18 @@ graph TD
 
 - **Scope**: Scans both incoming user prompts and outgoing tool response payloads.
 - **Tagging Mechanism**: Wraps external, unverified data (web search results, support tickets, emails) in ephemeral cryptographic tags:
-  ```yaml
-  __tainted_source__: { origin: "tool_id_49", integrity_hash: "SHA256" }
-  ```
+    
+    ```yaml
+    __tainted_source__: { origin: "tool_id_49", integrity_hash: "SHA256" }
+    ```
+    
 - **Enforcement**: If a downstream LLM agent attempts to pass tainted text into high-privilege execution tools (`execute_system_command`, `write_database`), MCP-Shield halts execution immediately with a `SecurityTaintViolationError`.
 
 ### 2. Cryptographic Capability Pinning
 
 - **Initialization Hashing**: On server initialization, MCP-Shield generates a SHA-256 cryptographic hash of all registered tool schemas, names, and natural language descriptions.
 - **Tamper Prevention**: Any dynamic tool re-registration or hot-reloaded capability alteration attempted by downstream servers at runtime triggers an immediate `SecurityTamperingError`.
+- **Known limitation — Trust On First Use (TOFU)**: Pinning protects against _changes_ after the first handshake, not against a malicious server that presents bad capabilities from the start. This mirrors the same limitation the base paper names for ATTESTMCP's own pinning; it is not something MCP-Shield resolves.
 
 ### 3. Dynamic Privilege Scoping & User Session Mapping
 
@@ -71,7 +74,7 @@ graph TD
 ### 5. Progressive Disclosure Compression & Sub-50ms Hot Path
 
 - **Context Optimization**: Employs context optimization (`Phi-3.5-Mini` / `Mistral-7B`) to strip structural JSON wrappers and redundant parameters mid-flight.
-- **Local Inference**: Passes ultra-dense routing payloads to a local, side-car compiled SLM engine (`vLLM` / `ONNX Runtime` on edge hardware / RTX 5060 Ti), guaranteeing decision latency under **50ms**.
+- **Local Inference**: Passes ultra-dense routing payloads to a local, side-car compiled SLM engine (`vLLM` / `ONNX Runtime` on edge hardware / RTX 5060 Ti), targeting decision latency under **50ms** — achievable if Tier 3 emits a short, constrained verdict rather than a freely-generated JSON object; to be confirmed against our own hardware benchmark before this number is published as a guarantee.
 
 ### 6. Hybrid Ephemeral Containerization (gVisor Integration)
 

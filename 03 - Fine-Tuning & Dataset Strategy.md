@@ -1,16 +1,19 @@
 # 03 - Fine-Tuning & Dataset Strategy
 
 ## 1. Core Model Choice & Inference Engine
-* **Primary Models**: `Qwen-2.5-7B-Instruct` or `Qwen-2.5-Coder-7B` (Fallback: `Llama-3-8B-Instruct`)
-* **Target Hardware**: NVIDIA RTX 5060 Ti (PC - ~5.2 GB VRAM at 4-bit Q4_K_M) / RTX 3050 (Laptop)
-* **Inference Runtime**: vLLM / ONNX Runtime side-car or Hugging Face TGI for low-latency (<40ms) evaluation.
+
+- **Primary Models**: `Qwen-2.5-7B-Instruct` or `Qwen-2.5-Coder-7B` (Fallback: `Llama-3-8B-Instruct`)
+- **Target Hardware**: NVIDIA RTX 5060 Ti (PC) / RTX 3050 (Laptop) for inference. Note: ~5.2GB is the _inference-time_ weight footprint at 4-bit Q4_K_M — QLoRA fine-tuning needs additional headroom for gradients, optimizer state, and activations even with a frozen 4-bit base. We'll confirm actual peak training VRAM on our exact card (checking whether it's the 8GB or 16GB 5060 Ti variant) before committing to hyperparameters, and use gradient checkpointing / small batch size + accumulation if needed.
+- **Inference Runtime**: vLLM / ONNX Runtime side-car or Hugging Face TGI for low-latency (<40ms) evaluation.
 
 ---
 
 ## 2. Fine-Tuning Objective
+
 Train the SLM to accept unstructured, multi-turn, conversational multi-agent JSON-RPC transaction payloads and immediately map them into a deterministic **JSON Authorization & Safety Manifest**.
 
 ### Target Manifest Output Schema
+
 ```json
 {
   "transaction_id": "tx_98234",
@@ -38,6 +41,7 @@ Train the SLM to accept unstructured, multi-turn, conversational multi-agent JSO
 The dataset is stored in standard **JSON Lines (`.jsonl`)** format compatible with **Unsloth**, **Axolotl**, and **TRL/SFTTrainer**. Each line contains a complete `messages` array adhering to the ChatML spec:
 
 ### Sample JSONL Row (`dataset.jsonl`)
+
 ```json
 {
   "messages": [
@@ -71,20 +75,23 @@ We use a 3-pillar hybrid collection pipeline to assemble the training dataset:
 ```
 
 ### A. Public Benchmarks & Repositories (30%)
-* **Prompt Injection & Adversarial Benchmarks**: `InjecAgent`, `AgentDojo`, `BIANCA`, `SPUR`.
-* **Benign Tool-Calling Datasets**: `ToolBench`, `xLAM`.
-* **Official MCP Server References**: Captured JSON-RPC 2.0 payloads from `@modelcontextprotocol/server-postgres`, `server-github`, `server-slack`.
+
+- **Prompt Injection & Adversarial Benchmarks**: `InjecAgent`, `AgentDojo`, `BIANCA`, `SPUR`.
+- **Benign Tool-Calling Datasets**: `ToolBench`, `xLAM`.
+- **Official MCP Server References**: Captured JSON-RPC 2.0 payloads from `@modelcontextprotocol/server-postgres`, `server-github`, `server-slack`.
 
 ### B. Synthetic Adversarial Generation (60%)
+
 Using frontier models (GPT-4o, Claude 3.5 Sonnet, DeepSeek-R1) with structured output packages (`instructor`/`outlines`), we synthesize multi-agent JSON-RPC logs across 3 target buckets:
 
-| Bucket | Share | Description | Target Vector |
-| :--- | :--- | :--- | :--- |
-| **1. Benign Traffic** | **60%** | Normal multi-turn tool queries, file reads, SQL selects. | Safe execution |
-| **2. Indirect Prompt Injection** | **25%** | Hidden prompts inside text payloads (`"Ignore rules..."`). | Asymmetric Poisoning, State Drift |
-| **3. Command & Schema Attacks** | **15%** | OS operators (`\|`, `;`, `&&`), dynamic tool description edits. | Parameter Injection, Privilege Escalation |
+|Bucket|Share|Description|Target Vector|
+|:--|:--|:--|:--|
+|**1. Benign Traffic**|**60%**|Normal multi-turn tool queries, file reads, SQL selects.|Safe execution|
+|**2. Indirect Prompt Injection**|**25%**|Hidden prompts inside text payloads (`"Ignore rules..."`).|Asymmetric Poisoning, State Drift|
+|**3. Command & Schema Attacks**|**15%**|OS operators (`\|`, `;`, `&&`), dynamic tool description edits.|Parameter Injection, Privilege Escalation|
 
 ### C. Real Multi-Agent Logs (10%)
+
 Live captured logs from local testbed agents executing standard multi-turn workflows.
 
 ---
@@ -103,13 +110,13 @@ graph TD
 ```
 
 1. **Strict Pre-Split (Data Leakage Prevention)**:
-   * Dataset is split into `train.jsonl` (80%), `val.jsonl` (10%), and `test.jsonl` (10%) **before** applying any cleaning or feature transformations.
+    - Dataset is split into `train.jsonl` (80%), `val.jsonl` (10%), and `test.jsonl` (10%) **before** applying any cleaning or feature transformations.
 2. **Semantic Deduplication**:
-   * MinHash / SimHash and embedding cosine similarity filtering (`sentence-transformers`) discard near-identical prompts with similarity `> 0.92`.
+    - MinHash / SimHash and embedding cosine similarity filtering (`sentence-transformers`) discard near-identical prompts with similarity `> 0.92`.
 3. **Dynamic Schema & Tool Name Permutation**:
-   * Tool names (`read_file` ➔ `fetch_doc_v2`, `query_user_db` ➔ `get_customer_records`) and parameter keys (`file_path` ➔ `doc_uri`) are permuted to prevent memorization of rigid tool identifiers.
+    - Tool names (`read_file` ➔ `fetch_doc_v2`, `query_user_db` ➔ `get_customer_records`) and parameter keys (`file_path` ➔ `doc_uri`) are permuted to prevent memorization of rigid tool identifiers.
 4. **System Prompt & Role Variation**:
-   * System prompts are subtly varied across training instances to prevent the model from overfitting to a fixed prompt template.
+    - System prompts are subtly varied across training instances to prevent the model from overfitting to a fixed prompt template.
 
 ---
 
@@ -117,20 +124,20 @@ graph TD
 
 When fine-tuning via **Unsloth (QLoRA)** on local hardware (RTX 5060 Ti):
 
-| Hyperparameter | Value | Rationale |
-| :--- | :--- | :--- |
-| **LoRA Rank ($r$)** | `16` | Keeps adapter lightweight (~50MB) while preserving base model reasoning. |
-| **LoRA Alpha ($\alpha$)** | `32` | Standard 2:1 ratio for stable gradient scaling. |
-| **LoRA Dropout** | `0.05`–`0.1` | Regularizes adapter weights during SFT to prevent overfitting. |
-| **Weight Decay** | `0.01` | Applies L2 penalty on non-zero weights. |
-| **NEFTune Noise Alpha** | `5.0` | Adds uniform noise to embedding vectors during SFT (boosts instruction robustness). |
-| **Epochs & Early Stopping** | `2–3` Epochs | Early stopping triggered when Validation Loss plateaus or F1 score degrades. |
+|Hyperparameter|Value|Rationale|
+|:--|:--|:--|
+|**LoRA Rank ($r$)**|`16`|Keeps adapter lightweight (~50MB) while preserving base model reasoning.|
+|**LoRA Alpha ($\alpha$)**|`32`|Standard 2:1 ratio for stable gradient scaling.|
+|**LoRA Dropout**|`0.05`–`0.1`|Regularizes adapter weights during SFT to prevent overfitting.|
+|**Weight Decay**|`0.01`|Applies L2 penalty on non-zero weights.|
+|**NEFTune Noise Alpha**|`5.0`|Adds uniform noise to embedding vectors during SFT (boosts instruction robustness).|
+|**Epochs & Early Stopping**|`2–3` Epochs|Early stopping triggered when Validation Loss plateaus or F1 score degrades.|
 
 ---
 
 ## 7. Token-Efficiency Strategy: Adaptive Sampling & Semantic Delta Filter
 
 To maintain sub-50ms hot-path SLAs:
-* Routine data transfers pass through a localized non-LLM statistical decay filter (Tier 1 & 2).
-* Tier 3 SLM inference triggers **only** when structural anomalies, high vector distance (`> 0.75`), or state graph micro-divergences appear.
 
+- Routine data transfers pass through a localized non-LLM statistical decay filter (Tier 1 & 2).
+- Tier 3 SLM inference triggers **only** when structural anomalies, high vector distance (`> 0.75`), or state graph micro-divergences appear.
