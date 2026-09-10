@@ -54,6 +54,13 @@ Because traditional firewalls only check for simple keywords or IP addresses, **
 
 ---
 
+### Who Is This For?
+
+- **Primary users, right now**: individual developers and small teams building or running MCP servers/agents who want real protection without a security team or cloud budget — this is who the `pip install`, zero-infra, $0-cost design is for.
+- **Secondary users, future roadmap**: enterprise SecOps/platform teams who'd eventually want the Kubernetes sidecar, eBPF interception, SIEM export, and IAM sync. Deliberately not our current focus — see [[07 - Model Distribution, PyPI Packaging & Local Dashboard]].
+
+---
+
 ### What is the 2026 Stateless MCP Update & Does it Fix Security?
 
 In July 2026, MCP was updated to a **Stateless Core**:
