@@ -1,82 +1,101 @@
 # 06 - Fortified Solution Architecture & Defense Upgrades
 
-> **Focus**: How MCP-Shield is engineered to solve every cross-domain security vulnerability and stand bulletproof against advanced protocol attack vectors.
+> **Focus**: how each vulnerability in [[01 - Threat Model & Vulnerabilities]] is addressed, by which mechanism from [[02 - System Architecture & Technical Implementation]], at which delivery stage, and with which known limits. No defence here is "bulletproof"; each row says what it detects, what it mitigates, and what it leaves open.
 
 ---
 
-## 🛡️ Executive Defense Mapping Matrix
+## 🛡️ Defense Mapping Matrix
 
-|Vulnerability & Cross-Domain Gap|Why Existing Solutions Fail|How MCP-Shield Solves It (Our Fortified Defense)|
-|:--|:--|:--|
-|**1. Natural Language Prompt Injection**|Traditional WAFs check for fixed code syntax (`DROP TABLE`, `<script>`).|**3-Tier Cascade & Fine-Tuned SLM**: Tier 3 outputs a constrained ALLOW/DENY verdict from natural-language prose; the rest of the authorization manifest is filled in programmatically from already-parsed request data.|
-|**2. Ingress-Only Tool Output Attacks**|LLM Guardrails & DLP only scan user input; ignore tool output text streams.|**Bidirectional Semantic Taint Engine**: Wraps unverified tool output in `__tainted_source__` cryptographic tags.|
-|**3. Kernel-Level Syscall Ignorance**|OS Sandboxes (gVisor) permit legal API database calls even if triggered by injection.|**Hybrid Semantic-Syscall Sandbox**: MCP-Shield validates protocol intent first, then executes tool inside gVisor.|
-|**4. Multi-Turn State Graph Drift**|Stateless proxies evaluate each turn in isolation; miss split multi-turn attacks.|**Sliding-Window State Graph Tracker**: Evaluates cumulative semantic delta drift across multi-turn trajectories.|
-|**5. Asymmetric Tool Description Poisoning**|Proxies check JSON schema validity but ignore malicious text inside tool descriptions.|**Cryptographic Capability Pinning**: Cryptographically hashes tool manifests (SHA-256) on startup; blocks runtime edits.|
-|**6. Monolithic Credential Impersonation**|IAM/OAuth verifies token validity, but cannot detect hijacked agent tool execution.|**Dynamic Privilege Scoping**: Intercepts user JWT/mTLS context to assert real-time workspace RBAC maps.|
-|**7. API Token Bloat & Latency ("Denial of Wallet")**|Cloud LLM checkers add 1-3s delay and thousands in API token costs.|**Progressive Disclosure Compression**: Local side-car SLM (Qwen-2.5/Llama-3 via Ollama/ONNX Runtime by default, vLLM on Linux/WSL2) achieves **sub-50ms** decisioning.|
+|Vulnerability|Why existing solutions miss it|MCP-Shield mechanism|Stage|Effect (honest verb)|Residual risk|
+|:--|:--|:--|:--|:--|:--|
+|**1. Indirect prompt injection via results, resources, MRTR input requests**|WAFs match code syntax; cloud guardrails are protocol-blind, ingress-only, and slow|**Tier 3 encoder classifier** on every untrusted segment before it reaches the host; Tier 2 cache/signature layer|1|**Detects and blocks** the classifier's four attack classes at a calibrated FPR ≤ 0.5%|Adaptive attacks written against the classifier (Fairoze et al., 2025); distribution shift (Fomin et al., 2026) — measured and reported, not hidden|
+|**2. Tool-description poisoning (first-contact and rug-pull)**|Scanners check schema validity or run once at install; proxies pass descriptions through|**Capability pinning** (SHA-256, re-checked on `toolsListChanged`) **+ description scan** with the classifier at list time|1|**Blocks** rug-pulls deterministically; **detects** first-contact poisoning the classifier recognises|TOFU: a poisoned description the classifier misses is pinned as-is (same limitation the base paper names for ATTESTMCP)|
+|**3. Parameter-bound command injection**|Schema validation accepts any string; kernel sandboxes see a legal syscall|**Tier 1 argument policy**: path canonicalisation + root allowlist, shell-metacharacter rejection in path/command fields, URL scheme/host allowlists|1|**Blocks** the operator and traversal patterns Equixly found in 43% / 22% of servers|Server-side logic that builds commands from *unflagged* fields; hence the Stage 2 per-tool approval flag and the enterprise gVisor option|
+|**4. Multi-turn state drift (split injections)**|Stateless proxies evaluate each message alone|**Session taint state** (Stage 1) carries context; **sliding-window tracker** (Stage 2) adds drift score + loop breaker|1 / 2|**Reduces** — escalates a drifting session to `strict` policy|A fragment sequence with no single flagged turn and no overlap with tainted content|
+|**5. Data-flow abuse after ingesting untrusted content (exfiltration, command smuggling)**|Guardrails scan text, not the *flow* from result to later tool call|**Proxy-held session taint state** + argument-overlap check on `write` / `execute` / `egress` calls; Stage 2 human approval via MRTR|1 / 2|**Blocks** verbatim and near-verbatim smuggling; **gates** high-privilege calls in tainted sessions under `strict`|Fully paraphrased intent — the reason Tier 3 runs *before* content reaches the host; principled fix is host rewriting (CaMeL)|
+|**6. Context-length DoS ("denial of wallet")**|Nothing upstream of the host measures size or redundancy|**Tier 2 DoS guard**: length caps, repetition- and compression-ratio checks|1|**Blocks** padding and recursive-text payloads before the classifier and the host|Legitimately large results need a per-tool cap override|
+|**7. Header / body desync**|Header-only filters trust `Mcp-Name`|**Tier 1 consistency check** mirroring `HeaderMismatchError` (`-32020`)|1|**Blocks** deterministically|None known|
+|**8. Cloud-guardrail latency and cost**|Every check is a cloud round trip: hundreds of ms to seconds, per-token billing|**Local small encoder** (int8 ONNX, CPU-capable) — end-to-end p95 target < 50 ms, $0|1|**Removes** the cloud dependency on the hot path|Latency scales with content length for very large results (reported separately)|
+|**9. Credential / privilege misuse by a hijacked agent**|IAM validates the token, not what the agent was tricked into doing|OAuth-claim privilege scoping / RBAC|**Future**|—|Out of scope for individual-developer users; design only|
 
 ---
 
-## 🏗️ 6 Core Architectural Fortifications
+## 🏗️ Core Architectural Fortifications
 
 ```mermaid
 graph TD
-    Payload["Incoming Multi-Agent Payload (JSON-RPC)"] --> Decorator["MCP-SHIELD LAYER (@shield decorator)"]
-    
-    subgraph Cascade["3-Tier Adaptive Hot-Path Cascade (<50ms Target)"]
-        Decorator --> T1["Tier 1: Header Allowlist + Structural/Field Check (0.5ms)"]
-        T1 -->|Valid Structure| T2["Tier 2: Vector Distance & Entropy Filter (3-5ms)"]
-        T1 -->|Shell Operators Detected| Deny["ABORT: SecurityTamperingError"]
-        
-        T2 -->|"Low Anomaly Score < 0.75"| Pass["ALLOW / Forward Packet"]
-        T2 -->|"High Anomaly Score > 0.75"| T3["Tier 3: Local SLM, Constrained Verdict (30-40ms)"]
+    Host["MCP Host"] <-->|"JSON-RPC 2.0"| Proxy["mcp-shield proxy"]
+    Proxy <-->|"JSON-RPC 2.0"| Servers["MCP Servers"]
 
-        
-        T3 -->|Malicious Intent Class| Deny
-        T3 -->|Safe Intent Class| Pass
+    subgraph Stage1["Stage 1 (MVP)"]
+        F1["Tier 1: Structural & Policy Gate (<1ms)"]
+        F2["Tier 2: Cache & Signature Layer (1–5ms)"]
+        F3["Tier 3: Encoder Injection Classifier (≤40ms CPU / segment)"]
+        F4["Capability Pinning + Description Scan"]
+        F5["Session Taint State + Argument-Overlap Check"]
     end
-    
-    Pass --> StateTrack["Sliding-Window State Graph Tracker"]
-    StateTrack --> Taint["Bidirectional Taint Engine (Taint Metadata Tag)"]
-    Taint --> Execution["Downstream Ephemeral Container (gVisor)"]
+
+    subgraph Stage2["Stage 2"]
+        F6["Sliding-Window State Tracker (drift + loop breaker)"]
+        F7["MRTR Human Approval"]
+        F8["Tier 4 Explainer SLM (off hot path)"]
+        F9["@shield decorator / ASGI middleware"]
+    end
+
+    subgraph Future["Future / Enterprise"]
+        F10["gVisor Sandboxing"]
+        F11["OAuth-claim Privilege Scoping / RBAC"]
+    end
+
+    Proxy --- Stage1
+    Stage1 -.-> Stage2
+    Stage2 -.-> Future
 ```
 
-### 1. Bidirectional Semantic Taint Tracking Engine
+### 1. Tier 3 Encoder Injection Classifier (Stage 1)
 
-- **Scope**: Scans both incoming user prompts and outgoing tool response payloads.
-- **Tagging Mechanism**: Wraps external, unverified data (web search results, support tickets, emails) in ephemeral cryptographic tags:
-    
-    ```yaml
-    __tainted_source__: { origin: "tool_id_49", integrity_hash: "SHA256" }
-    ```
-    
-- **Enforcement**: If a downstream LLM agent attempts to pass tainted text into high-privilege execution tools (`execute_system_command`, `write_database`), MCP-Shield halts execution immediately with a `SecurityTaintViolationError`.
+- **What**: a fine-tuned DeBERTa-v3-xsmall (22M) classifier, int8 ONNX, run on every untrusted free-text segment — tool results, resource contents, tool and prompt descriptions, MRTR `inputRequests`, free-text call arguments. Four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
+- **Why an encoder**: it is the only model class that fits the latency budget on CPU (Meta: 19.3 ms per 512 tokens on an A100 for the 22M lineage; CASCADE: a local review LLM cost 2.51 s per call and changed no outcomes).
+- **Why "always on" for untrusted text**: a classifier gated behind a similarity score is bypassed by any injection that does not resemble known ones. Source trust, not anomaly score, decides what gets classified.
+- **Enforcement**: `SecurityInjectionError` with class and calibrated probability.
 
-### 2. Cryptographic Capability Pinning
+### 2. Capability Pinning + Description Scanning (Stage 1)
 
-- **Initialization Hashing**: On server initialization, MCP-Shield generates a SHA-256 cryptographic hash of all registered tool schemas, names, and natural language descriptions.
-- **Tamper Prevention**: Any dynamic tool re-registration or hot-reloaded capability alteration attempted by downstream servers at runtime triggers an immediate `SecurityTamperingError`.
-- **Known limitation — Trust On First Use (TOFU)**: Pinning protects against _changes_ after the first handshake, not against a malicious server that presents bad capabilities from the start. This mirrors the same limitation the base paper names for ATTESTMCP's own pinning; it is not something MCP-Shield resolves.
+- **Pin**: canonical-JSON SHA-256 per tool on first `tools/list`; compared on every later listing and on `toolsListChanged`; any change withholds the tool and raises `SecurityTamperingError` until the developer re-pins explicitly.
+- **Scan**: descriptions and schema strings go through Tier 3 at list time; a flagged tool is never shown to the host.
+- **Known limitation — TOFU**: pinning protects against *changes* after first contact; scanning narrows first-contact risk but cannot remove it.
 
-### 3. Dynamic Privilege Scoping & User Session Mapping
+### 3. Session Taint State (Stage 1) and Human Approval (Stage 2)
 
-- **Context Interception**: Intercepts user authentication tokens (JWT or mTLS identity claims) embedded inside JSON-RPC metadata context blocks.
-- **RBAC Enforcement**: Cross-references the fine-tuned SLM's inferred tool execution manifest against an active workspace Role-Based Access Control (RBAC) map.
-- **Clearance Assurance**: Ensures an agent cannot execute tools beyond the clearance of the triggering human user.
+- **Record**: every untrusted result forwarded to the host is stored (hash, shingles, embedding) under the session key (OAuth subject + `clientInfo` + transport peer).
+- **Enforce**: a later `write` / `execute` / `egress` call whose arguments overlap tainted content raises `SecurityTaintViolationError`; under `strict` policy every such call in a tainted session needs approval.
+- **Approve (Stage 2)**: the proxy answers with an MRTR `input_required` result asking the user to confirm — the spec-native human-in-the-loop.
+- **Not cryptographic, not in-band**: earlier drafts described "cryptographic `__tainted_source__` tags" inside strings; those neither survive LLM paraphrase nor resist forgery and have been replaced by this design.
 
-### 4. Sliding-Window State Graph Tracker
+### 4. Tier 1 Argument Policy for Command Injection (Stage 1)
 
-- **Trajectory Tracking**: Tracks multi-turn conversational trajectories as a continuous state machine.
-- **Semantic Delta**: Computes the cumulative semantic delta across turns to detect split prompt injections.
-- **Infinite Loop Breaker**: Incorporates an automated infinite loop breaker that halts multi-agent execution if agents loop recursively with zero semantic progress.
+- Path canonicalisation against a per-tool root allowlist; rejection of `;`, `|`, `&&`, `` ` ``, `$(` in path/command-typed fields; scheme/host allowlists for URL-typed fields; schema type enforcement against the pinned `inputSchema`.
+- Works identically in proxy mode and in the `@shield` decorator, because it needs only the parsed arguments.
+- **gVisor** is *not* part of this defence for individual developers: it is Linux-only, requires Docker/`runsc`, and adds 100 ms–1 s per call. It remains on the enterprise roadmap for deployments that already run containers.
 
-### 5. Progressive Disclosure Compression & Sub-50ms Hot Path
+### 5. Sliding-Window State Tracker (Stage 2)
 
-- **Context Optimization**: Employs context optimization (`Phi-3.5-Mini` / `Mistral-7B`) to strip structural JSON wrappers and redundant parameters mid-flight.
-- **Local Inference**: Passes ultra-dense routing payloads to a local, side-car compiled SLM engine (Ollama/`ONNX Runtime` by default on Windows/Mac/Linux, `vLLM` as a Linux/WSL2-only opt-in for max throughput — see `07`), targeting decision latency under **50ms** — achievable if Tier 3 emits a short, constrained verdict rather than a freely-generated JSON object; to be confirmed against our own hardware benchmark before this number is published as a guarantee.
+- EWMA of injection probability across turns → escalate to `strict` on sustained drift; loop breaker on repeated `tool + argument hash` with no result change.
 
-### 6. Hybrid Ephemeral Containerization (gVisor Integration)
+### 6. Untrusted-Segment Extractor (Stage 1) — replaces "Progressive Disclosure Compression"
 
-- **Secondary Isolation**: Serves as a secondary execution defense.
-- **Sandbox Execution**: Approved tool execution payloads are passed to ephemeral, isolated `gVisor` sandbox containers with restricted kernel syscall access, neutralizing parameter-bound command injection (`filename: "log.txt; rm -rf /"`).
+- A deterministic walker that yields `(context_prefix, text)` pairs from every untrusted string in a message. The earlier idea of a second LLM (Phi-3.5-Mini / Mistral-7B) compressing payloads before classification is removed: two model calls cannot fit one 50 ms budget, and a JSON walker needs no model.
+
+### 7. Tier 4 Explainer SLM (Stage 2, optional)
+
+- Local `Qwen3-8B` / `Llama-3.1-8B` via Ollama (consent-gated) or opt-in cloud API; produces the "why was this blocked?" explanation for the dashboard. Never on the hot path; never overrides a block silently.
+
+---
+
+## What this document no longer claims
+
+- That MCP-Shield "solves every cross-domain vulnerability" or is "bulletproof" — the Residual-risk column exists for a reason.
+- That Tier 3 runs a 7B generative SLM in 30–40 ms.
+- That taint tags are cryptographic or travel inside strings.
+- That gVisor is part of the default developer deployment.
+- That privilege scoping / RBAC is a delivered feature.

@@ -15,8 +15,9 @@
 
 ### Idea 2: "MCP-Shield" (SELECTED)
 * **Domain**: Protocol-Level AI Safety, Inter-Agent Access Control, and Real-Time Injection Defense.
-* **Core Concept**: Inline reverse proxy & 3-tier cascade firewall for Model Context Protocol (MCP) traffic.
-* **Selection Rationale**: Solves the #1 enterprise security barrier blocking agentic AI adoption in 2026. Highly relevant, clear implementation scope (Python `@shield` decorator + fine-tuned SLM), and huge industry demand.
+* **Core Concept**: A local security proxy (`mcp-shield proxy`) plus a secondary `@shield` decorator, running a three-tier cascade (structural policy gate → cache/signature layer → fine-tuned encoder classifier) over both directions of Model Context Protocol (MCP) traffic.
+* **Selection Rationale**: Addresses the content-level attack surface (indirect injection, tool-description poisoning, parameter command injection) that the base paper identifies as the residual even after protocol-level attestation. Clear, staged implementation scope for one semester ([[00 - Master Architecture & Overview]] §5), a $0-by-default design that individual developers can actually adopt, and strong industry demand (HackerOne reported a 540% year-over-year rise in valid prompt-injection reports in 2025).
+* **Scope note (post-review)**: the original plan fine-tuned a 7B generative SLM for the hot path and wrapped tool execution in gVisor; both were replaced during design review — see [[02 - System Architecture & Technical Implementation]] §0 for the decisions and reasons.
 
 ---
 
@@ -44,7 +45,7 @@
 ### Idea 6: "StateSync (Agent-Git)"
 * **Domain**: Dynamic State Conflict Resolver for Multi-Agent Cascades.
 * **Core Concept**: Non-linear memory version control for LangGraph ecosystems to isolate and rewind cascading hallucinations.
-* **Why Passed**: Great concept, but elements incorporated directly into MCP-Shield's state graph tracking strategy.
+* **Why Passed**: Great concept, but its useful elements were folded into MCP-Shield's Stage 2 sliding-window state tracker ([[02 - System Architecture & Technical Implementation]] §6).
 
 ---
 
