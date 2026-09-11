@@ -14,7 +14,7 @@
 |**4. Multi-Turn State Graph Drift**|Stateless proxies evaluate each turn in isolation; miss split multi-turn attacks.|**Sliding-Window State Graph Tracker**: Evaluates cumulative semantic delta drift across multi-turn trajectories.|
 |**5. Asymmetric Tool Description Poisoning**|Proxies check JSON schema validity but ignore malicious text inside tool descriptions.|**Cryptographic Capability Pinning**: Cryptographically hashes tool manifests (SHA-256) on startup; blocks runtime edits.|
 |**6. Monolithic Credential Impersonation**|IAM/OAuth verifies token validity, but cannot detect hijacked agent tool execution.|**Dynamic Privilege Scoping**: Intercepts user JWT/mTLS context to assert real-time workspace RBAC maps.|
-|**7. API Token Bloat & Latency ("Denial of Wallet")**|Cloud LLM checkers add 1-3s delay and thousands in API token costs.|**Progressive Disclosure Compression**: Local side-car SLM (Qwen-2.5/Llama-3 via vLLM/ONNX) achieves **sub-50ms** decisioning.|
+|**7. API Token Bloat & Latency ("Denial of Wallet")**|Cloud LLM checkers add 1-3s delay and thousands in API token costs.|**Progressive Disclosure Compression**: Local side-car SLM (Qwen-2.5/Llama-3 via Ollama/ONNX Runtime by default, vLLM on Linux/WSL2) achieves **sub-50ms** decisioning.|
 
 ---
 
@@ -74,7 +74,7 @@ graph TD
 ### 5. Progressive Disclosure Compression & Sub-50ms Hot Path
 
 - **Context Optimization**: Employs context optimization (`Phi-3.5-Mini` / `Mistral-7B`) to strip structural JSON wrappers and redundant parameters mid-flight.
-- **Local Inference**: Passes ultra-dense routing payloads to a local, side-car compiled SLM engine (`vLLM` / `ONNX Runtime` on edge hardware / RTX 5060 Ti), targeting decision latency under **50ms** — achievable if Tier 3 emits a short, constrained verdict rather than a freely-generated JSON object; to be confirmed against our own hardware benchmark before this number is published as a guarantee.
+- **Local Inference**: Passes ultra-dense routing payloads to a local, side-car compiled SLM engine (Ollama/`ONNX Runtime` by default on Windows/Mac/Linux, `vLLM` as a Linux/WSL2-only opt-in for max throughput — see `07`), targeting decision latency under **50ms** — achievable if Tier 3 emits a short, constrained verdict rather than a freely-generated JSON object; to be confirmed against our own hardware benchmark before this number is published as a guarantee.
 
 ### 6. Hybrid Ephemeral Containerization (gVisor Integration)
 

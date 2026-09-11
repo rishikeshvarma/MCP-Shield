@@ -33,7 +33,7 @@ To protect real-time performance on modern **Stateless MCP HTTP Transports**, tr
 3. **Tier 3: Localized Small Language Model Inference (~15–40ms target)**
     
     - Triggered **only** if Tier 2 records an anomaly score above threshold (`> 0.75`).
-    - Runs a fine-tuned local SLM (`Qwen-2.5-7B`) via vLLM / ONNX side-car with PagedAttention continuous batching.
+    - Runs a fine-tuned local SLM (`Qwen-2.5-7B`) via Ollama/ONNX Runtime side-car (Windows/Mac/Linux default), or vLLM with PagedAttention continuous batching where available (Linux/WSL2 only, for max throughput).
     - **Outputs a constrained, minimal-token verdict** (e.g. grammar-constrained `ALLOW`/`DENY` + a short reason code and confidence score) rather than freely generating the full JSON Authorization Manifest — the rest of the manifest (transaction ID, extracted params, etc.) is filled in programmatically from data the system already parsed, since those fields don't need the LLM to reproduce them. This is what keeps the latency target achievable: generating an open-ended multi-field JSON object token-by-token on consumer hardware does not fit inside tens of milliseconds, but a few constrained output tokens can.
 
 ```mermaid

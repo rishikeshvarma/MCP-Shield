@@ -39,7 +39,7 @@ In July 2026, the Model Context Protocol moved from a stateful connection core t
 The stateless update allows MCP-Shield to run **more than 2x faster**:
 
 1. **Header Micro-Interception (sub-millisecond Tier 1 check)**: Tier 1 inspects `Mcp-Method` and `Mcp-Name` HTTP headers to validate the requested tool against an allowlist, in well under 1ms, without parsing the full JSON body. A separate, still-cheap pattern scan over a small set of flagged argument fields (not the whole payload) catches obvious shell-injection attempts in the same tier.
-2. **Zero Session Lock Contention**: Removing session state locks enables pure parallel execution on Python `asyncio` + `uvloop`.
+2. **Zero Session Lock Contention**: Removing session state locks enables parallel async handling on Python `asyncio` — `uvloop` on Linux/Mac, `winloop` on Windows (`uvloop` itself does not support Windows).
 3. **Lock-Free Vector Caching (`ttlMs`)**: Leveraging spec `ttlMs` metadata allows Tier 2 to cache clean embedding scores in a lock-free memory cache (**<1ms**).
 
 ---
@@ -52,7 +52,7 @@ The stateless update allows MCP-Shield to run **more than 2x faster**:
 |**Detection Method**|Regex & Static Signatures|Vector matching / Fixed Rules|3-Tier Cascade (Structural + Local SLM Intent)|
 |**Data Scope**|Ingress Only|Ingress Only|Bidirectional (Input + Tool Output Taint Tagging)|
 |**Latency SLA**|Fast but blind|Variable (External API Bloat)|**Sub-50ms target** (Stateless Header Fast-Path + Local SLM, pending benchmark)|
-|**High Traffic Concurrency**|High|Crashes / Rate Limited|**Short-circuiting 90-95% traffic** + vLLM continuous batching|
+|**High Traffic Concurrency**|High|Crashes / Rate Limited|**Short-circuiting 90-95% traffic** + continuous batching where the backend supports it (vLLM, Linux/WSL2)|
 |**Deployment Cost**|High Infra Cost|High Cloud API Bills|**$0.00** (Model weights auto-cached from Hugging Face)|
 
 ---

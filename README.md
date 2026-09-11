@@ -1,143 +1,140 @@
-# 07 - Model Hosting, PyPI Deployment & Local Dashboard Architecture
+<div align="center">
 
-> **Focus**: Zero-Cost Model Distribution, PyPI Package Deployment Pipeline, Local Inference Execution, and the Localhost Security Admin Dashboard.
+# 🛡️ MCP-Shield
 
----
+**Semantic LLM Firewall for Model Context Protocol (MCP) in Agent Networks**
 
-## 1. Zero-Cost Model Distribution Strategy
+_An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety & Real-Time Indirect Prompt Injection Defense_
 
-### The Packaging Dilemma
+[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org/) [![PyPI Version](https://img.shields.io/badge/pypi-mcp--shield--llm-green.svg)](https://pypi.org/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://claude.ai/chat/LICENSE) [![Latency SLA](https://img.shields.io/badge/Latency-Target%20%3C50ms%20\(pending%20benchmark\)-yellow.svg)](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47) [![Base Paper](https://img.shields.io/badge/Base%20Paper-arXiv%3A2601.17549-red.svg)](https://arxiv.org/abs/2601.17549)
 
-- ❌ **Including Model Weights in PyPI Package**: PyPI limits package uploads to **100MB**. A 7B parameter SLM is **~4GB to 14GB** and cannot be bundled into a Python `.whl` wheel.
-- ❌ **Hosted Cloud API (Hugging Face / OpenAI)**: Sending high-volume agent traffic to external APIs introduces massive latency (>1000ms), API rate-limiting (429 errors), and exponential cloud API costs ("Denial of Wallet").
+[Features](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47#-key-features) • [Architecture](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47#-3-tier-hot-path-cascade) • [Quickstart](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47#-quickstart) • [Dashboard](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47#-localhost-admin-dashboard) • [Benchmarks](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47#-empirical-benchmarks) • [Citation](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47#-citation)
 
-### 🏆 The $0 Solution: Local Auto-Download from Hugging Face Hub
-
-```
-1. Model Weights (.safetensors / .gguf)  ──>  Uploaded to Hugging Face Model Hub (FREE, unlimited downloads)
-2. Python Package (pip install mcp-shield-llm)  ──>  Published on PyPI (FREE, ~2MB lightweight code)
-3. On First Run  ──>  Package automatically downloads weights from Hugging Face to local cache (~/.cache/mcp-shield)
-4. Runtime  ──>  Runs 100% locally on user's GPU/CPU via Ollama / vLLM / ONNX (Zero API Cost, Zero Latency)
-```
-
-1. **Hugging Face Model Hub Hosting**:
-    - Fine-tuned quantized model weights (`Qwen-2.5-7B-Instruct-Q4_K_M`, ~4.2GB) are hosted on Hugging Face Hub under `rishikesh/mcp-shield-qwen2.5-7b-gguf`.
-    - Hugging Face provides **100% free, unlimited storage and unlimited bandwidth** for open-source model weights.
-2. **Automated On-Demand Local Caching**:
-    - When a developer installs `pip install mcp-shield-llm` and initializes `@shield`, the package checks `~/.cache/mcp-shield/`.
-    - If the model weights are missing, it streams and caches the quantized GGUF weights directly from Hugging Face Hub once.
-3. **Local On-Device Inference**:
-    - Executes locally on the user's hardware via **vLLM**, **Ollama**, or **llama.cpp / ONNX Runtime**.
-    - **Cost to Developer = $0**. **Cost to End-User = $0**. Zero cloud latency, zero external API keys.
+</div>
 
 ---
 
-## 2. PyPI Package Deployment Pipeline
+## ⚡ Overview & Product Boundaries
 
-Publishing open-source Python packages to **PyPI** (Python Package Index) is **100% free**.
+### What MCP-Shield Is (and Isn't)
 
-### Repository & Package Structure
+- **WE ARE BUILDING**: An autonomous inline security firewall middleware (`pip install mcp-shield-llm`) centered around a Python `@shield` decorator.
+- **WE ARE NOT BUILDING**: New AI agents (e.g. web search or coding bots). MCP-Shield wraps and protects _any existing_ AI agent framework or MCP tool server.
 
+### The 2026 Stateless MCP Update & Security Gaps
+
+In July 2026, the Model Context Protocol transitioned to a **Stateless HTTP Core**. While this update resolves cloud load-balancing and horizontal scaling bottlenecks:
+
+- ⚠️ **It does NOT solve Prompt Injection or Confused Deputy attacks**. Stateless HTTP standardizes packet transmission, but remains completely blind to natural language prompt injections hidden inside data payloads.
+- ⚡ **It lets MCP-Shield's Tier 1 route and pre-filter almost for free**: Native HTTP headers (`Mcp-Method: tools/call`, `Mcp-Name: read_file`) — standard as of MCP spec `2026-07-28` — let Tier 1 validate _which_ tool is being called against an allowlist in well under a millisecond, without touching the request body. Catching malicious _content_ inside a call's arguments (e.g. a shell operator hidden in a file path) still requires a cheap scan of that argument string, which Tier 1 also does — but on a handful of flagged fields, not a full JSON parse.
+
+---
+
+---
+
+## 🎯 Target Users
+
+**Primary — Individual developers & small teams.** Anyone building or running an MCP server/agent who wants real protection without a security budget: `pip install`, zero infra, zero cloud API bill. The decorator-based integration and $0-cost-by-default design are built for this group first, and most of the roadmap below should be prioritized against their needs before anyone else's.
+
+**Secondary (roadmap, not current focus) — Enterprise SecOps & platform teams.** Organizations wanting the Kubernetes sidecar, eBPF interception, SIEM export, and IAM sync described in [Enterprise Integration Roadmap](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47#-enterprise-integration-roadmap). Deliberately scoped as future work so it doesn't pull effort off the core detection engine.
+
+---
+
+## 🔥 Key Features
+
+- 🚀 **Sub-50ms Hot-Path Cascade (target)**: Header + fast pattern check (<1ms) and lock-free vector caching (1-5ms) are designed to verify 90-95% of clean traffic almost instantly, with the remainder escalated to a local SLM classifier — see [Benchmarks](https://claude.ai/chat/f3342a1d-9978-4276-b4de-920ead776f47#-empirical-benchmarks) for what's measured vs. still-to-be-validated.
+- 🐍 **Zero-Infra `@shield` Decorator**: Protect any native Python MCP server or agent framework with a single line of code.
+- 🏷️ **Bidirectional Semantic Taint Engine**: Wraps unverified external tool output in `__tainted_source__` cryptographic tags to halt downstream high-privilege tool execution.
+- 📌 **Cryptographic Capability Pinning**: Hashes tool schemas (SHA-256) on startup to prevent dynamic tool description poisoning attacks.
+- 🕸️ **Sliding-Window State Graph Tracker**: Evaluates multi-turn conversational trajectories to catch split prompt injections and break infinite agent loops.
+- 🎛️ **Localhost Admin Dashboard & Mesh Visualizer**: Embedded FastAPI + Web UI (`mcp-shield dashboard`) to track real-time agent topology graphs, monitor latency, and manage tools.
+- 🔌 **Multi-Model Provider Hub**: Choose between local pre-tuned models (`Qwen-2.5-7B`, `Qwen-2.5-3B`, `Llama-3-8B`), local Ollama/ONNX Runtime backends (Windows/Mac/Linux) or vLLM (Linux/WSL2), or cloud APIs.
+- 💰 **$0 Cost by Default**: Model weights auto-download from Hugging Face Hub to local disk (`~/.cache/mcp-shield/`) and run 100% locally. Zero external API costs on the default path — cloud providers (DeepSeek/OpenAI/Claude) are available as an opt-in swap, not the default.
+
+---
+
+## 🏗️ 3-Tier Hot-Path Cascade
+
+```mermaid
+graph TD
+    Payload["Incoming Multi-Agent Payload (Stateless HTTP)"] --> Decorator["MCP-SHIELD LAYER (@shield decorator)"]
+    
+    subgraph Cascade["3-Tier Adaptive Hot-Path Cascade (Sub-50ms Target)"]
+        Decorator --> T1["Tier 1: Header Allowlist + Flagged-Field Pattern Scan (<1ms)"]
+        T1 -->|Valid Header/Fields| T2["Tier 2: Lock-Free Vector & Entropy (1-5ms)"]
+        T1 -->|Shell Operators Detected| Deny["ABORT: SecurityTamperingError"]
+        
+        T2 -->|"Low Anomaly Score < 0.75"| Pass["ALLOW / Forward Packet"]
+        T2 -->|"High Anomaly Score > 0.75"| T3["Tier 3: Local SLM, Constrained-Output Verdict Only (~15-40ms)"]
+        
+        T3 -->|Malicious Intent Class| Deny
+        T3 -->|Safe Intent Class| Pass
+    end
+    
+    Pass --> StateTrack["Sliding-Window State Graph Tracker"]
+    StateTrack --> Taint["Bidirectional Taint Engine (__tainted_source__)"]
+    Taint --> Execution["Downstream Ephemeral Container (gVisor)"]
 ```
-mcp-shield-llm/
-├── mcp_shield/                  # Core Python Package
-│   ├── __init__.py              # Exports @shield decorator & SecurityConfig
-│   ├── cascade.py               # 3-Tier Hot-Path Decision Engine (Tier 1/2/3)
-│   ├── taint_engine.py          # Cryptographic __tainted_source__ Taint Tracker
-│   ├── capability_pinning.py    # SHA-256 Manifest Capability Hasher
-│   ├── state_tracker.py         # Sliding-Window State Graph Tracker
-│   └── dashboard/               # Embedded FastAPI + Web UI Dashboard
-│       ├── app.py               # FastAPI Web Server & WebSocket Streams
-│       └── static/              # Compiled Web UI Dashboard (React/HTML/CSS)
-├── tests/                       # Unit tests & benchmark suites
-├── pyproject.toml               # Package build metadata & dependencies
-├── README.md                    # GitHub & PyPI Documentation
-└── LICENSE                      # Open-Source License (Apache 2.0 / MIT)
-```
 
-### Publication Workflow
+---
 
-```bash
-# 1. Install build tools
-pip install build twine
+## 💻 Quickstart
 
-# 2. Build lightweight source distribution and wheel (~2MB)
-python -m build
-
-# 3. Upload package to PyPI
-twine upload dist/*
-```
-
-Once published, developers can protect their MCP servers worldwide using:
+### 1. Installation
 
 ```bash
 pip install mcp-shield-llm
 ```
 
+### 2. Basic Usage (`@shield` Decorator)
+
+Wrap your MCP server request handler with the `@shield` decorator:
+
+```python
+import asyncio
+from mcp_shield import shield, SecurityConfig
+
+# Initialize zero-trust protection (<50ms SLA)
+@shield(config=SecurityConfig(strict_mode=True, max_latency_ms=50))
+async def handle_mcp_request(json_rpc_payload: dict):
+    # Core MCP Server / Tool Execution Logic
+    return {"jsonrpc": "2.0", "result": "Operation successful", "id": json_rpc_payload.get("id")}
+
+# Example Execution
+if __name__ == "__main__":
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+            "name": "read_file",
+            "arguments": {"path": "/workspace/report.pdf; cat /etc/passwd"}
+        },
+        "id": 1
+    }
+    
+    try:
+        response = asyncio.run(handle_mcp_request(payload))
+        print("Response:", response)
+    except Exception as e:
+        print("Security Tampering Detected:", e)
+```
+
 ---
 
-## 3. Localhost Admin Dashboard Architecture
+## 🎛️ Localhost Admin Dashboard
 
-MCP-Shield includes an embedded **Localhost Security Dashboard** to provide real-time visibility into multi-agent traffic, attack classification, interactive tool management, and real-time topology graph rendering.
-
-**Security note**: the dashboard binds to `127.0.0.1` only by default — it never listens on `0.0.0.0` out of the box. A lightweight bearer token is generated on first run (`~/.cache/mcp-shield/dashboard_token`) and required for any access beyond localhost, since a monitoring surface for a security product is itself worth protecting; this matters more than usual for our primary users, who are running this on personal dev machines without a corporate network boundary around them.
-
-```
-Developer Terminal  ──>  mcp-shield dashboard  ──>  Spins up FastAPI + Web UI on http://localhost:8501
-```
-
-```mermaid
-graph TD
-    AgentTraffic["Incoming MCP Payload"] --> Decorator["@shield Decorator"]
-    Decorator --> Engine["3-Tier Cascade Engine"]
-    Engine --> WS["Async WebSocket Broadcaster"]
-    WS --> UI["Localhost Web Dashboard (http://localhost:8501)"]
-    
-    subgraph DashboardModules["Localhost Dashboard Modules"]
-        UI --> M1["1. Live Traffic Stream & Latency Feed"]
-        UI --> M2["2. Topology Graph Visualizer & Agent Mesh Map"]
-        UI --> M3["3. Interactive Tool Management Hub"]
-        UI --> M4["4. Dynamic Rule & Strictness Configuration"]
-        UI --> M5["5. Enterprise Integration & SIEM Telemetry"]
-    end
-```
-
-### Key Dashboard Capabilities
-
-1. **Live Traffic & Latency Stream**:
-    - Displays real-time WebSocket feed of JSON-RPC transactions.
-    - Shows microsecond latency metrics broken down by Tier 1 (Spec Check), Tier 2 (Vector/Entropy), and Tier 3 (Local SLM).
-2. **Security Verdict Analytics**:
-    - Visual pie charts and metric cards detailing total processed requests, Allowed vs Blocked traffic, and specific attack vector counts (Indirect Prompt Injection, Parameter Injection, Capability Poisoning).
-3. **Dynamic Rule & Strictness Manager**:
-    - Web UI controls to dynamically toggle `Strict Mode`, adjust `Max Latency Budget (e.g., 50ms)`, and manage custom keyword/IP bypass lists without restarting the host server.
-4. **Interactive Documentation Sandbox**:
-    - Built-in payload simulator to test custom JSON-RPC messages against the `@shield` decorator and inspect generated JSON Authorization Manifests in real time.
-5. **Flagged Request Inspector**:
-    - A dedicated queue of every request that Tier 2/3 flagged or blocked, showing the full payload, which tier caught it, the detected attack vector, and the confidence score.
-    - One-click **Allow this pattern** / **Report false positive** actions feed directly back into the local vector database and dataset-review queue — this is the main lever against false-positive fatigue, since a developer who can see _why_ something was flagged (and override it in one click) is far less likely to just disable the tool.
-
-### CLI Command Controls
+Launch the embedded security dashboard and agent mesh visualizer:
 
 ```bash
-# Check detected hardware and which cascade tiers/backends will run
-mcp-shield doctor
-
-# Launch the Localhost Security Dashboard
 mcp-shield dashboard --port 8501
-
-# Download or verify local SLM weights
-mcp-shield pull-model --model qwen2.5-7b-gguf
-
-# Run local benchmark suite against InjecAgent / AgentDojo
-mcp-shield benchmark --suite injecagent
 ```
 
----
+Open `http://localhost:8501` in your browser to access:
 
-## 4. MCP Client Tracking & Topology Graph Visualizer
-
-MCP-Shield intercepts standard MCP request/response traffic (`tools/call`, `tools/list`, `resources/list`, `prompts/list`) and continuously aggregates per-request identity metadata to map out the agent network in real time. Note: under the 2026-07-28 stateless spec there's no more `initialize` handshake to hook — every request now self-describes via `io.modelcontextprotocol/clientInfo` in `_meta`, so discovery has to be a rolling aggregation over recent requests, not a one-time event per connection.
+- 🟢 **Real-Time Network Topology Map**: Live D3.js node graph tracking MCP Clients, Agents, and Tools.
+- 📊 **Microsecond Latency & Traffic Stream**: Live WebSocket feed with Tier 1/2/3 latency breakdowns.
+- 🛠️ **Interactive Tool Hub**: Register stdIO/SSE tools and configure per-tool taint enforcement & latency caps.
+- ⚙️ **Multi-Model Selector**: Switch between 3B/7B/8B SLMs or connect Ollama/ONNX Runtime (any OS) / vLLM (Linux/WSL2) endpoints with 1-click latency diagnostics.
 
 ```mermaid
 graph LR
@@ -151,174 +148,116 @@ graph LR
     end
 ```
 
-### Topology Map Capabilities
-
-- **Rolling Node Discovery**: Since the 2026-07-28 spec removed the `initialize` handshake, MCP-Shield derives each client's identity from the `clientInfo` metadata attached to _every_ request rather than a one-time handshake, and keeps a sliding window of recently-active clients/tools rendered as an interactive D3.js / Cytoscape graph on `http://localhost:8501`. A client that stops sending requests ages out of the "active" view after a configurable idle window instead of showing a stale "connected" state.
-- **State Color-Coding**:
-    - 🟢 **Green (Verified / Safe)**: Agent & tool nodes operating under clean context.
-    - 🟡 **Yellow (Tainted Context)**: Nodes consuming external, unverified data streams (`__tainted_source__` active).
-    - 🔴 **Red (Quarantined / Attack Blocked)**: Nodes flagged by Tier 3 SLM or Capability Pinning violations.
-- **Data Flow Trajectory**: Clicking any directed edge opens the exact JSON-RPC payload history, microsecond latency breakdown, and sliding-window state graph.
-
 ---
 
-## 5. Interactive Tool Management & Custom Plugin Hub
+## 🔧 Model Configuration Options
 
-The dashboard provides a GUI to register, test, and enforce security policies on third-party MCP tools directly from the browser:
-
-```
-[ Localhost Tool Hub ]
-├── 1. REGISTER NEW TOOL ──> Add stdio / SSE tool endpoints (GitHub, Slack, Custom API)
-├── 2. SCHEMAS & TAINT ────> Toggle cryptographic taint tracking per tool
-├── 3. PRIVILEGE SCOPING ──> Map tool capabilities to User RBAC roles
-└── 4. LIVE PLAYGROUND ────> Send test inputs and preview JSON Authorization Manifests
-```
-
-### Features:
-
-1. **Dynamic Tool Registry**: Connect and register new MCP servers via `stdio` commands or `SSE` HTTP endpoints directly through the web UI.
-2. **Per-Tool Security Policies**:
-    - Set granular latency caps (e.g. `20ms` for critical DB reads, `100ms` for web search).
-    - Toggle **Taint Enforcement**: Select whether tool outputs should automatically inherit `__tainted_source__` flags.
-3. **Hot-Reload Schema Pinning**: Modify or inspect SHA-256 capability hashes without taking down running Python processes.
-
----
-
----
-
-## 6. Multi-Model Provider Hub & Dynamic Model Selection (Optional Feature)
-
-MCP-Shield provides a **Plug-and-Play Model Provider Hub** allowing developers to switch between first-party fine-tuned SLMs or connect custom local/cloud inference backends directly via the `@shield` config or Localhost Dashboard.
-
-```mermaid
-graph TD
-    Decorator["@shield Decorator"] --> Config["SecurityConfig (model_provider, endpoint)"]
-    
-    Config --> Tier3["Tier 3 SLM Classifier"]
-    
-    subgraph ModelHub["Multi-Model Provider Hub"]
-        Tier3 --> M1["1. First-Party Fine-Tuned Models (Default)"]
-        Tier3 --> M2["2. Custom Local Backends (Ollama / vLLM)"]
-        Tier3 --> M3["3. External Cloud APIs (DeepSeek / OpenAI / Anthropic)"]
-    end
-    
-    M1 --> HF1["mcp-shield-qwen2.5-7b (Default: ~4.2GB VRAM)"]
-    M1 --> HF2["mcp-shield-qwen2.5-3b (Ultra-Fast: ~2.2GB VRAM)"]
-    M1 --> HF3["mcp-shield-llama3-8b (High Reasoning)"]
-    
-    M2 --> O1["Ollama (http://localhost:11434)"]
-    M2 --> V1["vLLM (http://localhost:8000/v1)"]
-    
-    M3 --> API1["DeepSeek-V3 / DeepSeek-R1"]
-    M3 --> API2["OpenAI gpt-4o-mini"]
-    M3 --> API3["Claude 3.5 Haiku"]
-```
-
-### First-Party Fine-Tuned Model Family
-
-Users can switch between three pre-built models hosted on Hugging Face Hub based on their hardware specs:
-
-|Model ID|Base Model|VRAM Required|Primary Use Case|
-|:--|:--|:--|:--|
-|`mcp-shield-qwen2.5-7b` _(Default)_|`Qwen-2.5-7B-Instruct`|**~4.2 GB** (Q4_K_M)|Optimal balance of sub-40ms speed & high injection detection accuracy.|
-|`mcp-shield-qwen2.5-3b`|`Qwen-2.5-3B-Instruct`|**~2.2 GB** (Q4_K_M)|Ultra-fast execution for low-resource hardware (e.g. RTX 3050 4GB Laptop).|
-|`mcp-shield-llama3-8b`|`Llama-3-8B-Instruct`|**~5.1 GB** (Q4_K_M)|Maximum complex intent reasoning and multi-turn trajectory evaluation.|
-
-### Code Configuration Example (`@shield`)
+MCP-Shield supports plug-and-play inference backends:
 
 ```python
 from mcp_shield import shield, SecurityConfig, ModelProvider
 
-# Option A: Using pre-tuned 3B model for low VRAM
+# Option A: Ultra-light 3B model (Low VRAM laptops / RTX 3050 ~2.2GB)
 @shield(config=SecurityConfig(
     model_provider=ModelProvider.FIRST_PARTY,
     model_name="mcp-shield-qwen2.5-3b"
 ))
 
-# Option B: Connecting to a local Ollama instance
+# Option B: Local Ollama Endpoint
 @shield(config=SecurityConfig(
     model_provider=ModelProvider.OLLAMA,
     model_endpoint="http://localhost:11434",
     model_name="qwen2.5-coder:7b"
 ))
 
-# Option C: Using external DeepSeek cloud API
+# Option C: Cloud API (DeepSeek / OpenAI)
 @shield(config=SecurityConfig(
     model_provider=ModelProvider.DEEPSEEK,
     api_key_env="DEEPSEEK_API_KEY",
     model_name="deepseek-chat"
 ))
-async def handle_mcp_request(json_rpc_payload: dict, context: SessionContext):
-    return await execute_tool(json_rpc_payload)
+async def handle_mcp_request(payload: dict):
+    pass
 ```
 
-### Dashboard UI Model Switcher
+### OS, Event Loop & Runtime Detection
 
-On `http://localhost:8501`, the **Model Settings** tab enables:
+Since our primary users are individual developers on whatever OS and hardware they happen to own (not just our own RTX 5060 Ti / RTX 3050 dev machines), `@shield` runs a startup check rather than assuming CUDA + Linux:
 
-1. **1-Click Model Swapping**: Switch active inference engines on the fly without restarting server code.
-2. **Live Latency & Accuracy Benchmark**: Run a 5-payload diagnostic test to measure real-time latency (ms) and schema compliance for any selected model before locking it into production.
+|OS|Event Loop|Default Tier 3 Runtime|If No GPU / Ollama Declined|
+|:--|:--|:--|:--|
+|**Windows**|`winloop` (`uvloop` itself does not run on Windows)|Ollama — installed only with explicit user consent (it's a separate app, not just a pip dependency); ONNX Runtime + DirectML available as opt-in|Tier 1 + Tier 2 only, or cloud fallback (Option C above)|
+|**macOS**|`uvloop`|Ollama, same consent gate; ONNX Runtime + CoreML available as opt-in|Tier 1 + Tier 2 only, or cloud fallback|
+|**Linux**|`uvloop`|Ollama, same consent gate; ONNX Runtime or **vLLM** available as opt-in (vLLM = fastest, but officially Linux-native only — Windows only gets it via WSL2)|Tier 1 + Tier 2 only, or cloud fallback|
 
-### Hardware Detection & Automatic Fallback
+Multiple `@shield`-wrapped servers on one machine share a single Ollama/vLLM daemon on localhost rather than each loading its own copy of the model into VRAM.
 
-Our primary users (see [[MCP-Shield Documentation#Who Is This For?]]) are individual developers on whatever hardware they happen to own — not just the NVIDIA dev machines above. `mcp-shield doctor` runs a one-time startup check and picks a default mode rather than assuming CUDA is present:
-
-|Detected Hardware|Default Mode|
-|:--|:--|
-|CUDA GPU, ≥5GB free VRAM|Full 3-Tier cascade, first-party model via vLLM/ONNX|
-|Apple Silicon (Metal)|Full 3-Tier cascade, routed through Ollama automatically — no CUDA path exists here|
-|No GPU / insufficient VRAM|**Tier 1 + Tier 2 only.** A startup warning states Tier 3 semantic classification is disabled for ambiguous cases, rather than silently falling back to multi-second CPU inference. Developer can opt into `ModelProvider.DEEPSEEK` / `OPENAI` / `ANTHROPIC` as a Tier 3 cloud fallback instead.|
-|≥2 `@shield`-wrapped processes detected on one machine|Recommends (and can auto-configure via `mcp-shield dashboard`) a single shared Ollama/vLLM daemon on localhost, so N protected servers don't each load their own copy of the model into VRAM|
-
-This is a startup-time, visible decision (printed to stdout and shown in the dashboard's Model Settings tab), not a silent runtime guess — a developer should always know which tiers are actually protecting them before traffic starts flowing.
+Run `mcp-shield doctor` to see which mode you're in — including which event loop, which runtime, and what it did or didn't install — before traffic starts flowing. Full decision flow (with diagram) lives in `07 - Model Distribution, PyPI Packaging & Local Dashboard.md`.
 
 ---
 
-## 7. Enterprise System Integration Blueprint (Future Enhancement Roadmap)
+## 📊 Benchmarks
 
-To deploy MCP-Shield inside Fortune 500 infrastructure and corporate SecOps environments, the architecture supports 4 enterprise integration paths:
+**Status: evaluation pending.** We have not yet run MCP-Shield through a benchmark suite end-to-end — the numbers below are the problem baseline and our internal targets, not measured MCP-Shield results. We'll replace the "Target" column with real numbers (and error bars) once we've run our own PROTOAMP-style evaluation across _MCPSecBench_, _InjecAgent_, and _AgentDojo_.
 
-```mermaid
-graph TD
-    EnterpriseSystem["Enterprise Infrastructure"] --> Gateway["MCP-Shield Enterprise Gateway"]
-    
-    Gateway --> K8s["1. Kubernetes Sidecar (Envoy / Istio Proxy Filter)"]
-    Gateway --> eBPF["2. Kernel eBPF Non-Intrusive Network Interception"]
-    Gateway --> SIEM["3. Enterprise SIEM / OTLP Audit Streaming"]
-    Gateway --> IAM["4. Corporate IAM Sync (Okta / HashiCorp Vault / OIDC)"]
-```
+|Metric|Baseline (unprotected MCP, Maloyan & Namiot 2026)|MCP-Shield Target|Status|
+|:--|:--|:--|:--|
+|**Attack Success Rate (ASR)**|**52.8%**|< 20%|Pending our own evaluation|
+|**False Positive Rate (FPR)**|—|< 5%|Pending our own evaluation|
+|**Average Decision Latency**|—|< 50 ms|Pending hardware benchmark|
+|**Tier 1/2 Rejection Rate**|—|> 85%|Pending our own evaluation|
 
-### 1. Kubernetes & Service Mesh Sidecar (Envoy / Istio Filter)
-
-- Deploy MCP-Shield as a lightweight sidecar container (`mcp-shield-sidecar`) inside Kubernetes pods.
-- Intercepts inter-agent gRPC / HTTP SSE traffic at the container ingress/egress border using Envoy WASM filters.
-
-### 2. Kernel-Level eBPF Traffic Interception
-
-- For zero-code-change enterprise deployments, run MCP-Shield as an eBPF (Extended Berkeley Packet Filter) daemon on host servers.
-- Automatically captures JSON-RPC socket traffic at the Linux kernel level without requiring Python code modifications.
-
-### 3. Enterprise SIEM & SOC Telemetry Export
-
-- Real-time streaming of security audit logs to **Splunk**, **Datadog**, **Elasticsearch**, and **Microsoft Sentinel**.
-- Supports standard **OpenTelemetry (OTLP)** and Syslog formats, exporting detailed JSON-RPC attack traces, payload hashes, and SLM confidence scores for SOC incident response teams.
-
-### 4. Corporate IAM & Key Management Integration
-
-- Integrates natively with **HashiCorp Vault**, **AWS Secrets Manager**, and **Okta / Entra ID (OIDC / SAML)**.
-- Automatically verifies user JWT tokens in JSON-RPC metadata against active enterprise LDAP / Active Directory permission matrices.
+For reference only: the base paper's own defense, **ATTESTMCP** — a cryptographic capability-attestation and message-signing scheme, architecturally different from MCP-Shield's semantic classification approach — reduced ASR from 52.8% to 12.4% (76.5% reduction) at 2.4–8.3ms overhead per message. That number belongs to ATTESTMCP, not to MCP-Shield; we cite it here only as an upper-bound reference point for what a protocol-level defense can achieve.
 
 ---
 
-## 8. Summary Architectural Matrix
+## 🏢 Enterprise Integration Roadmap
 
-| Component                           | Host / Storage Location               | Cost       | Execution Mode                                     |
-| :---------------------------------- | :------------------------------------ | :--------- | :------------------------------------------------- |
-| **Python Core Library (`@shield`)** | PyPI (`mcp-shield-llm`)               | **$0.00**  | Installed locally via `pip` (~2MB wheel).          |
-| **Fine-Tuned SLM Weights**          | Hugging Face Model Hub                | **$0.00**  | Auto-downloaded once to `~/.cache/mcp-shield/`.    |
-| **Local Inference Runtime**         | User's Machine (vLLM / Ollama / ONNX) | **$0.00**  | Sub-50ms execution on local GPU/CPU.               |
-| **Localhost Admin Dashboard**       | Embedded FastAPI in Python package    | **$0.00**  | Serves local Web UI on `http://localhost:8501`.    |
-| **Topology Graph Visualizer**       | Web UI (D3.js / Cytoscape)            | **$0.00**  | Real-time map of clients, agents & tools.          |
-| **Interactive Tool Hub**            | Web UI Tool Manager                   | **$0.00**  | GUI for registering & managing MCP tools.          |
-| **Multi-Model Provider Hub**        | Config / Web UI Model Switcher        | **$0.00**  | Switch between 3B/7B/8B or Ollama/vLLM/Cloud APIs. |
-| **Enterprise SIEM / K8s Mesh**      | OpenTelemetry / Envoy WASM Sidecar    | Enterprise | Production K8s & SOC integration roadmap.          |
+For enterprise Kubernetes and SecOps environments:
+
+- **Kubernetes Envoy WASM Sidecar**: Deploy as `mcp-shield-sidecar` to filter inter-agent gRPC/HTTP SSE traffic.
+- **Kernel eBPF Interception**: Zero-code-change Linux kernel socket monitoring.
+- **OpenTelemetry (OTLP) / SIEM Export**: Stream audit logs directly to **Splunk**, **Datadog**, and **Microsoft Sentinel**.
+- **Corporate IAM Sync**: Native JWT validation against **HashiCorp Vault**, **AWS Secrets Manager**, and **Okta / Entra ID**.
+
+---
+
+## ⚠️ Known Limitations
+
+- **Capability Pinning is Trust-On-First-Use (TOFU).** Hashing a tool's schema on first contact stops _runtime_ tampering, but it can't protect against a malicious server that presents bad capabilities from the very first handshake — same limitation the base paper names for ATTESTMCP's own pinning.
+- **Tier 3's classifier weights, if built on public checkpoints (Qwen/Llama), are not secret.** An attacker with white-box access to the same open weights can optimize adversarial inputs offline against our exact classifier. We treat this as an open problem, not a solved one — mitigations under consideration include keeping fine-tuned weights private and periodic adversarial-retraining passes.
+- **The MCP spec deprecated the `sampling/createMessage` feature in the 2026-07-28 revision** (still active during a 12-month deprecation window). This was the base paper's highest-ASR attack vector (58–72%). MCP-Shield's value proposition increasingly rests on the attack surfaces that persist regardless — tool-description poisoning, cross-server propagation, and parameter injection — which we call out explicitly rather than leaning on Sampling-based numbers going forward.
+
+## 📚 Base Paper & Academic Citation
+
+MCP-Shield is built upon the security analysis and attack taxonomies established in:
+
+> **Breaking the Protocol: Security Analysis of the Model Context Protocol Specification**  
+> _Maloyan & Namiot (arXiv:2601.17549, 2026)_
+
+```bibtex
+@article{maloyan2026breaking,
+  title={Breaking the Protocol: Security Analysis of the Model Context Protocol Specification},
+  author={Maloyan, Levon and Namiot, Dmitry},
+  journal={arXiv preprint arXiv:2601.17549},
+  year={2026}
+}
+```
+
+---
+
+## 🧑‍💻 Author & Acknowledgments
+
+Developed by **Rishikesh Varma, Vineel Yerubandi, Shivatarak Reddy, ES Heron**  
+_Department of Computer Science & Engineering (AI & ML), Keshav Memorial Institute of Technology (KMIT)_
+
+- **Project Track**: Major Final Year Project (Academic Year 2025–2026)
+- **Domain**: Agentic AI Security, Protocol-Level Safety & Real-Time Injection Defense
+
+---
+
+<div align="center">
+
+Distributed under the Apache 2.0 License. Designed for open-source AI agent safety.
+
+</div>

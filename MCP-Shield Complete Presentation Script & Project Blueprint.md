@@ -39,7 +39,7 @@ To address this critical security gap, we propose **MCP-Shield**, an autonomous 
 
 - **Tier 1 — Header Allowlist & Structural/Field Check (0.5ms)**: Validates the requested tool against a per-agent allowlist and runs a fast pattern scan over flagged argument fields to filter illegal OS command execution operators (`|`, `;`, `&&`).
 - **Tier 2 — Vector Distance & Entropy Filter (3–5ms)**: Evaluates vector similarity against known injection signatures and tracks semantic entropy to deflect Context-Length Denial-of-Service attacks.
-- **Tier 3 — Localized SLM Intent Inference (30–40ms target)**: Executes a local, fine-tuned Small Language Model (`Qwen-2.5-7B` / `Llama-3-8B` via vLLM / ONNX) to classify intent and emit a constrained ALLOW/DENY verdict; the full authorization manifest is then assembled programmatically from already-parsed request data.
+- **Tier 3 — Localized SLM Intent Inference (30–40ms target)**: Executes a local, fine-tuned Small Language Model (`Qwen-2.5-7B` / `Llama-3-8B` via Ollama/ONNX Runtime by default, vLLM on Linux/WSL2) to classify intent and emit a constrained ALLOW/DENY verdict; the full authorization manifest is then assembled programmatically from already-parsed request data.
 
 Furthermore, MCP-Shield incorporates four core architectural fortifications: (1) **Bidirectional Semantic Taint Tracking** (`__tainted_source__`) to tag unverified external tool output payloads; (2) **Cryptographic Capability Pinning** via SHA-256 tool manifest hashing to prevent dynamic tool description poisoning; (3) a **Sliding-Window State Graph Tracker** to evaluate multi-turn conversational trajectories and detect split prompt injections; and (4) **Ephemeral gVisor Containerization** for OS kernel-level isolation.
 
@@ -411,7 +411,7 @@ async def handle_mcp_request(json_rpc_payload: dict, context: SessionContext):
 |**4. Multi-Turn State Graph Drift**|Stateless proxies evaluate each turn in isolation; miss split multi-turn attacks.|**Sliding-Window State Graph Tracker**: Evaluates cumulative semantic delta drift across multi-turn trajectories.|
 |**5. Asymmetric Tool Description Poisoning**|Proxies check JSON schema validity but ignore malicious text inside tool descriptions.|**Cryptographic Capability Pinning**: Cryptographically hashes tool manifests (SHA-256) on startup; blocks runtime edits.|
 |**6. Monolithic Credential Impersonation**|IAM/OAuth verifies token validity, but cannot detect hijacked agent tool execution.|**Dynamic Privilege Scoping**: Intercepts user JWT/mTLS context to assert real-time workspace RBAC maps.|
-|**7. API Token Bloat & Latency ("Denial of Wallet")**|Cloud LLM checkers add 1-3s delay and thousands in API token costs.|**Progressive Disclosure Compression**: Local side-car SLM (Qwen-2.5/Llama-3 via vLLM/ONNX) achieves **sub-50ms** decisioning.|
+|**7. API Token Bloat & Latency ("Denial of Wallet")**|Cloud LLM checkers add 1-3s delay and thousands in API token costs.|**Progressive Disclosure Compression**: Local side-car SLM (Qwen-2.5/Llama-3 via Ollama/ONNX Runtime by default, vLLM on Linux/WSL2) achieves **sub-50ms** decisioning.|
 
 ---
 
@@ -447,7 +447,7 @@ graph TD
 
 - **Tier 1: Header Allowlist + Structural/Field Validation (0.5ms)**: Validates the requested tool/method against a per-agent allowlist from HTTP headers, plus instant input parameter type verification. Rejects payloads containing illegal command execution operators (`|`, `;`, `&&`, `` ` ``) in flagged fields or unmapped structural keys.
 - **Tier 2: Fast Vector Distance & Entropy Filtering (3-5ms)**: Runs a compact local embedding model (`BGE-Micro` or `E5`) to evaluate vector distance against a fast local database of known injection vectors, while tracking semantic entropy to deflect Context-Length DoS attacks.
-- **Tier 3: Localized Small Language Model Inference (30-40ms target)**: Triggered **only** if Tier 2 records an anomaly score above threshold (`> 0.75`). A local side-car SLM (`Qwen-2.5-7B` or `Llama-3-8B` compiled via vLLM/ONNX) evaluates multi-agent intent and outputs a constrained ALLOW/DENY verdict — full free-form manifest generation is not on this hot path, since it wouldn't fit the latency budget.
+- **Tier 3: Localized Small Language Model Inference (30-40ms target)**: Triggered **only** if Tier 2 records an anomaly score above threshold (`> 0.75`). A local side-car SLM (`Qwen-2.5-7B` or `Llama-3-8B` via Ollama/ONNX Runtime by default, or `vLLM` on Linux/WSL2 for max throughput) evaluates multi-agent intent and outputs a constrained ALLOW/DENY verdict — full free-form manifest generation is not on this hot path, since it wouldn't fit the latency budget.
 
 ---
 
@@ -484,7 +484,7 @@ graph TD
 #### 5. Progressive Disclosure Compression & Sub-50ms Hot Path
 
 - **Context Optimization**: Employs context optimization (`Phi-3.5-Mini` / `Mistral-7B`) to strip structural JSON wrappers and redundant parameters mid-flight.
-- **Local Inference**: Passes ultra-dense routing payloads to a local, side-car compiled SLM engine (`vLLM` / `ONNX Runtime` on edge hardware / RTX 5060 Ti), guaranteeing decision latency under **50ms**.
+- **Local Inference**: Passes ultra-dense routing payloads to a local, side-car compiled SLM engine (Ollama/`ONNX Runtime` by default on Windows/Mac/Linux, `vLLM` as a Linux/WSL2-only opt-in), targeting decision latency under **50ms** — to be confirmed against our own hardware benchmark, not yet a guarantee.
 
 #### 6. Hybrid Ephemeral Containerization (gVisor Integration)
 
@@ -500,7 +500,7 @@ graph TD
 |**Developer Integration**|Network Appliance Layer|Complex Config / YAML|Single Python Decorator (`@shield`)|
 |**Detection Method**|Regex & Static Signatures|Vector matching / Fixed Rules|3-Tier Cascade (Structural + SLM Intent)|
 |**Data Scope**|Ingress Only|Ingress Only|Bidirectional (Input + Tool Output Tagging)|
-|**Latency Strategy**|Fast but completely blind|Variable (External API Bloat)|Local vLLM / Side-car ONNX Cascade (<50ms)|
+|**Latency Strategy**|Fast but completely blind|Variable (External API Bloat)|Local Ollama/ONNX Cascade by default, vLLM opt-in on Linux (<50ms target)|
 |**State Handling**|Stateless / Packet Isolation|Basic Session Isolation|Sliding Window Multi-Turn Graph Tracking|
 |**Schema Integrity**|Ignored|Allowed dynamically|Cryptographic Manifest Hashing & Pinning|
 
@@ -525,7 +525,7 @@ graph TD
 1. **Overcoming General LLM Guardrail Latency & Ingress Blindness**:
     
     - **Problem**: General guardrails (NeMo, Llama Guard) add 1–2s delay and ignore tool output text streams.
-    - **MCP-Shield Fortification**: We deploy a **Bidirectional Semantic Taint Tracking Engine** (`__tainted_source__`) and run a local side-car compiled SLM (`vLLM` / `ONNX`) to guarantee **sub-50ms** decisioning on both input and output streams.
+    - **MCP-Shield Fortification**: We deploy a **Bidirectional Semantic Taint Tracking Engine** (`__tainted_source__`) and run a local side-car compiled SLM (Ollama/`ONNX` by default, `vLLM` on Linux/WSL2) targeting **sub-50ms** decisioning on both input and output streams.
 2. **Overcoming Traditional WAF Natural Language Blindness**:
     
     - **Problem**: WAFs search for fixed code syntax (`DROP TABLE`), completely missing English prompt injections.
@@ -571,7 +571,7 @@ graph LR
 #### Stage 02: Local SLM Fine-Tuning & Compilation
 
 - Fine-tune `Qwen-2.5-7B-Instruct` or `Llama-3-8B-Instruct` on pairs of raw JSON-RPC logs mapped to strict authorization manifests.
-- Compile the fine-tuned model for side-car deployment using `vLLM` or `ONNX Runtime` to guarantee sub-40ms execution times.
+- Compile the fine-tuned model for side-car deployment using Ollama/`ONNX Runtime` (default, cross-platform) or `vLLM` (Linux/WSL2 only, highest throughput) targeting sub-40ms execution times.
 
 #### Stage 03: 3-Tier Cascade & State Machine Middleware Engineering
 

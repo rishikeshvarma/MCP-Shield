@@ -16,19 +16,20 @@
 ```
 1. Model Weights (.safetensors / .gguf)  ──>  Uploaded to Hugging Face Model Hub (FREE, unlimited downloads)
 2. Python Package (pip install mcp-shield-llm)  ──>  Published on PyPI (FREE, ~2MB lightweight code)
-3. On First Run  ──>  Package automatically downloads weights from Hugging Face to local cache (~/.cache/mcp-shield)
-4. Runtime  ──>  Runs 100% locally on user's GPU/CPU via Ollama / vLLM / ONNX (Zero API Cost, Zero Latency)
+3. On First Run  ──>  `mcp-shield doctor` detects OS + hardware, picks a runtime, downloads weights to an OS-appropriate cache dir
+4. Runtime  ──>  Runs 100% locally on user's GPU/CPU (Zero API Cost, Zero Latency) — via Ollama, ONNX Runtime, or vLLM depending on OS; see §6 for exactly which
 ```
 
 1. **Hugging Face Model Hub Hosting**:
     - Fine-tuned quantized model weights (`Qwen-2.5-7B-Instruct-Q4_K_M`, ~4.2GB) are hosted on Hugging Face Hub under `rishikesh/mcp-shield-qwen2.5-7b-gguf`.
     - Hugging Face provides **100% free, unlimited storage and unlimited bandwidth** for open-source model weights.
 2. **Automated On-Demand Local Caching**:
-    - When a developer installs `pip install mcp-shield-llm` and initializes `@shield`, the package checks `~/.cache/mcp-shield/`.
+    - When a developer installs `pip install mcp-shield-llm` and initializes `@shield`, the package checks the OS-appropriate cache directory, resolved via the `platformdirs` package rather than a hardcoded path — `~/.cache/mcp-shield/` on Linux/Mac, `%LOCALAPPDATA%\mcp-shield` on Windows. (A hardcoded `~/.cache/...` path technically resolves on Windows too, but it isn't the idiomatic location and won't match user expectations there — `platformdirs` handles the OS difference in one call instead of us hand-rolling it.)
     - If the model weights are missing, it streams and caches the quantized GGUF weights directly from Hugging Face Hub once.
-3. **Local On-Device Inference**:
-    - Executes locally on the user's hardware via **vLLM**, **Ollama**, or **llama.cpp / ONNX Runtime**.
-    - **Cost to Developer = $0**. **Cost to End-User = $0**. Zero cloud latency, zero external API keys.
+3. **Local On-Device Inference — OS-scoped, not one-size-fits-all**:
+    - `vLLM` officially supports **Linux only** (WSL2 on Windows, unofficial community forks otherwise) — it is _not_ a cross-platform default, see §6.
+    - `Ollama` and `ONNX Runtime` both have genuine first-class support on Windows, macOS, and Linux, and are the actual cross-platform defaults.
+    - **Cost to Developer = $0**. **Cost to End-User = $0** on the default local path. Zero cloud latency, zero external API keys, unless the user explicitly opts into a cloud fallback (see §6).
 
 ---
 
@@ -198,7 +199,7 @@ graph TD
     
     subgraph ModelHub["Multi-Model Provider Hub"]
         Tier3 --> M1["1. First-Party Fine-Tuned Models (Default)"]
-        Tier3 --> M2["2. Custom Local Backends (Ollama / vLLM)"]
+        Tier3 --> M2["2. Custom Local Backends"]
         Tier3 --> M3["3. External Cloud APIs (DeepSeek / OpenAI / Anthropic)"]
     end
     
@@ -206,8 +207,9 @@ graph TD
     M1 --> HF2["mcp-shield-qwen2.5-3b (Ultra-Fast: ~2.2GB VRAM)"]
     M1 --> HF3["mcp-shield-llama3-8b (High Reasoning)"]
     
-    M2 --> O1["Ollama (http://localhost:11434)"]
-    M2 --> V1["vLLM (http://localhost:8000/v1)"]
+    M2 --> O1["Ollama — Win/Mac/Linux (http://localhost:11434)"]
+    M2 --> ON1["ONNX Runtime — Win/Mac/Linux (DirectML / CoreML / CUDA)"]
+    M2 --> V1["vLLM — Linux / WSL2 only (http://localhost:8000/v1)"]
     
     M3 --> API1["DeepSeek-V3 / DeepSeek-R1"]
     M3 --> API2["OpenAI gpt-4o-mini"]
@@ -252,6 +254,8 @@ async def handle_mcp_request(json_rpc_payload: dict, context: SessionContext):
     return await execute_tool(json_rpc_payload)
 ```
 
+> `ModelProvider.FIRST_PARTY` is not one fixed runtime — `mcp-shield doctor` resolves it to Ollama, ONNX Runtime, or vLLM depending on detected OS/hardware, per the decision flow below. Setting `model_provider=ModelProvider.OLLAMA` (or `ONNX`, or `VLLM`) explicitly overrides auto-detection if a developer wants to force a specific backend.
+
 ### Dashboard UI Model Switcher
 
 On `http://localhost:8501`, the **Model Settings** tab enables:
@@ -259,18 +263,51 @@ On `http://localhost:8501`, the **Model Settings** tab enables:
 1. **1-Click Model Swapping**: Switch active inference engines on the fly without restarting server code.
 2. **Live Latency & Accuracy Benchmark**: Run a 5-payload diagnostic test to measure real-time latency (ms) and schema compliance for any selected model before locking it into production.
 
-### Hardware Detection & Automatic Fallback
+### OS & Runtime Detection Flow (`mcp-shield doctor`)
 
-Our primary users (see [[MCP-Shield Documentation#Who Is This For?]]) are individual developers on whatever hardware they happen to own — not just the NVIDIA dev machines above. `mcp-shield doctor` runs a one-time startup check and picks a default mode rather than assuming CUDA is present:
+Our primary users (see [[MCP-Shield Documentation#Who Is This For?]]) are individual developers on whatever OS and hardware they happen to own. `mcp-shield doctor` runs on first startup and makes three decisions in order — event loop, model runtime, and whether it has consent to install anything — rather than assuming a fixed stack:
 
-|Detected Hardware|Default Mode|
-|:--|:--|
-|CUDA GPU, ≥5GB free VRAM|Full 3-Tier cascade, first-party model via vLLM/ONNX|
-|Apple Silicon (Metal)|Full 3-Tier cascade, routed through Ollama automatically — no CUDA path exists here|
-|No GPU / insufficient VRAM|**Tier 1 + Tier 2 only.** A startup warning states Tier 3 semantic classification is disabled for ambiguous cases, rather than silently falling back to multi-second CPU inference. Developer can opt into `ModelProvider.DEEPSEEK` / `OPENAI` / `ANTHROPIC` as a Tier 3 cloud fallback instead.|
-|≥2 `@shield`-wrapped processes detected on one machine|Recommends (and can auto-configure via `mcp-shield dashboard`) a single shared Ollama/vLLM daemon on localhost, so N protected servers don't each load their own copy of the model into VRAM|
+```mermaid
+graph TD
+    Start["mcp-shield doctor (first run)"] --> OS{"Detect OS"}
 
-This is a startup-time, visible decision (printed to stdout and shown in the dashboard's Model Settings tab), not a silent runtime guess — a developer should always know which tiers are actually protecting them before traffic starts flowing.
+    OS -->|Windows| WEvt["Event loop: winloop"]
+    OS -->|macOS / Linux| UEvt["Event loop: uvloop"]
+
+    WEvt --> WGPU{"Compatible GPU?"}
+    UEvt --> UGPU{"Compatible GPU?"}
+
+    WGPU -->|"CUDA or DirectX12 GPU"| WRuntime["Default runtime: Ollama\n(ONNX Runtime + DirectML available as opt-in)"]
+    WGPU -->|None| NoGPU["Tier 1 + Tier 2 only\n(or cloud fallback, Option C)"]
+
+    UGPU -->|"Mac: Apple Silicon"| MRuntime["Default runtime: Ollama\n(ONNX Runtime + CoreML available as opt-in)"]
+    UGPU -->|"Linux: CUDA"| LRuntime["Default runtime: Ollama\n(ONNX Runtime or vLLM available as opt-in — vLLM = max throughput, Linux-native only)"]
+    UGPU -->|None| NoGPU
+
+    WRuntime --> Installed{"Ollama already installed?"}
+    MRuntime --> Installed
+    LRuntime --> Installed
+
+    Installed -->|Yes| Pull["Pull/verify model, run full 3-Tier cascade"]
+    Installed -->|No| Consent{"Ask user consent to install Ollama"}
+
+    Consent -->|Granted| AutoInstall["Install via winget / brew / apt (or show manual link), then pull model"]
+    Consent -->|Declined| NoGPU
+
+    AutoInstall --> Pull
+```
+
+|OS|Event Loop|Default Runtime|GPU-Accelerated Opt-In|If No GPU / Consent Declined|
+|:--|:--|:--|:--|:--|
+|**Windows**|`winloop` (uvloop-compatible API; `uvloop` itself does not run on Windows)|Ollama, installed with explicit user consent|ONNX Runtime + DirectML (any DX12 GPU, not NVIDIA-only)|Tier 1 + Tier 2 only, or cloud fallback|
+|**macOS**|`uvloop`|Ollama, installed with explicit user consent|ONNX Runtime + CoreML (Apple Silicon)|Tier 1 + Tier 2 only, or cloud fallback|
+|**Linux**|`uvloop`|Ollama, installed with explicit user consent|ONNX Runtime, or **vLLM** (native, highest throughput — officially Linux-only; Windows users get this only via WSL2, not natively)|Tier 1 + Tier 2 only, or cloud fallback|
+
+**Why consent, specifically for Ollama**: unlike the pip-installed Python dependencies, Ollama is a separate application/daemon running outside the Python process. We ask before installing anything outside the package's own footprint — if declined, `@shield` runs Tier 1 + Tier 2 only and prints a clear warning that Tier 3 semantic classification is disabled, rather than silently degrading or silently installing software the developer didn't approve. The same consent gate applies to ONNX Runtime's platform-specific GPU execution providers where they require a separate driver/runtime install (e.g. DirectML), though the base ONNX Runtime pip package itself installs like any other dependency.
+
+Multiple `@shield`-wrapped processes on one machine still share a single Ollama/vLLM daemon on localhost rather than each loading its own copy of the model into VRAM.
+
+This is a startup-time, visible decision (printed to stdout and shown in the dashboard's Model Settings tab), not a silent runtime guess — a developer should always know which tiers are actually protecting them, and what got installed on their machine to make that happen, before traffic starts flowing.
 
 ---
 
@@ -316,9 +353,9 @@ graph TD
 |:--|:--|:--|:--|
 |**Python Core Library (`@shield`)**|PyPI (`mcp-shield-llm`)|**$0.00**|Installed locally via `pip` (~2MB wheel).|
 |**Fine-Tuned SLM Weights**|Hugging Face Model Hub|**$0.00**|Auto-downloaded once to `~/.cache/mcp-shield/`.|
-|**Local Inference Runtime**|User's Machine (vLLM / Ollama / ONNX)|**$0.00**|Sub-50ms execution on local GPU/CPU.|
+|**Local Inference Runtime**|User's Machine (Ollama / ONNX Runtime on all OSes; vLLM on Linux/WSL2 only)|**$0.00**|Sub-50ms target execution on local GPU/CPU, OS-appropriate backend chosen by `mcp-shield doctor`.|
 |**Localhost Admin Dashboard**|Embedded FastAPI in Python package|**$0.00**|Serves local Web UI on `http://localhost:8501`.|
 |**Topology Graph Visualizer**|Web UI (D3.js / Cytoscape)|**$0.00**|Real-time map of clients, agents & tools.|
 |**Interactive Tool Hub**|Web UI Tool Manager|**$0.00**|GUI for registering & managing MCP tools.|
-|**Multi-Model Provider Hub**|Config / Web UI Model Switcher|**$0.00**|Switch between 3B/7B/8B or Ollama/vLLM/Cloud APIs.|
+|**Multi-Model Provider Hub**|Config / Web UI Model Switcher|**$0.00**|Switch between 3B/7B/8B, Ollama/ONNX Runtime (all OSes) or vLLM (Linux/WSL2), or Cloud APIs.|
 |**Enterprise SIEM / K8s Mesh**|OpenTelemetry / Envoy WASM Sidecar|Enterprise|Production K8s & SOC integration roadmap.|

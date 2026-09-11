@@ -4,7 +4,7 @@
 
 - **Primary Models**: `Qwen-2.5-7B-Instruct` or `Qwen-2.5-Coder-7B` (Fallback: `Llama-3-8B-Instruct`)
 - **Target Hardware**: NVIDIA RTX 5060 Ti (PC) / RTX 3050 (Laptop) for inference. Note: ~5.2GB is the _inference-time_ weight footprint at 4-bit Q4_K_M — QLoRA fine-tuning needs additional headroom for gradients, optimizer state, and activations even with a frozen 4-bit base. We'll confirm actual peak training VRAM on our exact card (checking whether it's the 8GB or 16GB 5060 Ti variant) before committing to hyperparameters, and use gradient checkpointing / small batch size + accumulation if needed.
-- **Inference Runtime**: vLLM / ONNX Runtime side-car or Hugging Face TGI for low-latency (<40ms) evaluation.
+- **Inference Runtime**: vLLM / ONNX Runtime side-car or Hugging Face TGI for low-latency (<40ms) evaluation during development (run on the team's Linux/Ubuntu machines). Note: this is the dev/eval harness, not necessarily what ships as the end-user default — see `07 - Model Distribution, PyPI Packaging & Local Dashboard.md` for the OS-aware runtime users actually get (`vLLM` specifically is Linux/WSL2-only, so it's not assumed on Windows/Mac end-user installs).
 
 ---
 
