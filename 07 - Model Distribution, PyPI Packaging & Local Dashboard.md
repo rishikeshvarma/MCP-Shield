@@ -24,8 +24,9 @@
     - Fine-tuned quantized model weights (`Qwen-2.5-7B-Instruct-Q4_K_M`, ~4.2GB) are hosted on Hugging Face Hub under `rishikesh/mcp-shield-qwen2.5-7b-gguf`.
     - Hugging Face provides **100% free, unlimited storage and unlimited bandwidth** for open-source model weights.
 2. **Automated On-Demand Local Caching**:
-    - When a developer installs `pip install mcp-shield-llm` and initializes `@shield`, the package checks the OS-appropriate cache directory, resolved via the `platformdirs` package rather than a hardcoded path — `~/.cache/mcp-shield/` on Linux/Mac, `%LOCALAPPDATA%\mcp-shield` on Windows. (A hardcoded `~/.cache/...` path technically resolves on Windows too, but it isn't the idiomatic location and won't match user expectations there — `platformdirs` handles the OS difference in one call instead of us hand-rolling it.)
-    - If the model weights are missing, it streams and caches the quantized GGUF weights directly from Hugging Face Hub once.
+    - When a developer installs `pip install mcp-shield-llm` and initializes `@shield`, it resolves the weights one of two ways depending on the runtime `mcp-shield doctor` picked (§6): **Ollama** pulls the GGUF directly via `ollama run hf.co/rishikesh/mcp-shield-qwen2.5-7b-gguf` — no separate download step, Ollama handles the fetch itself — while **ONNX Runtime** uses `huggingface_hub` to download the weights into the OS-appropriate cache directory, resolved via the `platformdirs` package rather than a hardcoded path (`~/.cache/mcp-shield/` on Linux/Mac, `%LOCALAPPDATA%\mcp-shield` on Windows).
+    - Either path reads an optional `HF_TOKEN` env var if the developer has set one (own free HF account) for a higher, per-user download quota — anonymous access works fine for normal single-user downloads and remains the zero-config default; see §6 for why we don't ship one shared token in the package instead.
+    - This downloads real model weights from HF Hub's free file hosting — not a call to HuggingFace's separate, rate-limited Inference API. Nothing about this path sends traffic off the user's machine after the one-time download.
 3. **Local On-Device Inference — OS-scoped, not one-size-fits-all**:
     - `vLLM` officially supports **Linux only** (WSL2 on Windows, unofficial community forks otherwise) — it is _not_ a cross-platform default, see §6.
     - `Ollama` and `ONNX Runtime` both have genuine first-class support on Windows, macOS, and Linux, and are the actual cross-platform defaults.
@@ -265,7 +266,7 @@ On `http://localhost:8501`, the **Model Settings** tab enables:
 
 ### OS & Runtime Detection Flow (`mcp-shield doctor`)
 
-Our primary users (see [[MCP-Shield Documentation#Who Is This For?]]) are individual developers on whatever OS and hardware they happen to own. `mcp-shield doctor` runs on first startup and makes three decisions in order — event loop, model runtime, and whether it has consent to install anything — rather than assuming a fixed stack:
+Our primary users (see [[MCP-Shield Documentation#Who Is This For?]]) are individual developers on whatever OS and hardware they happen to own. `mcp-shield doctor` runs on first startup and makes three decisions in order — event loop, model runtime, and whether it has consent to install anything — rather than assuming a fixed stack. Detection is **capability-based**, not tied to specific named GPUs: any CUDA/DirectX12/Metal-capable device that clears the VRAM threshold qualifies — the RTX 5060 Ti / RTX 3050 mentioned elsewhere in these docs are our own dev/test hardware, not an exhaustive supported list.
 
 ```mermaid
 graph TD
@@ -274,40 +275,46 @@ graph TD
     OS -->|Windows| WEvt["Event loop: winloop"]
     OS -->|macOS / Linux| UEvt["Event loop: uvloop"]
 
-    WEvt --> WGPU{"Compatible GPU?"}
-    UEvt --> UGPU{"Compatible GPU?"}
+    WEvt --> WGPU{"Compatible GPU?\n(any CUDA or DX12 device, capability-based)"}
+    UEvt --> UGPU{"Compatible GPU?\n(Apple Silicon / any CUDA device)"}
 
-    WGPU -->|"CUDA or DirectX12 GPU"| WRuntime["Default runtime: Ollama\n(ONNX Runtime + DirectML available as opt-in)"]
-    WGPU -->|None| NoGPU["Tier 1 + Tier 2 only\n(or cloud fallback, Option C)"]
+    WGPU -->|Yes| WConsent{"Ollama installed?"}
+    WGPU -->|No| NoGPU["No usable local GPU"]
 
-    UGPU -->|"Mac: Apple Silicon"| MRuntime["Default runtime: Ollama\n(ONNX Runtime + CoreML available as opt-in)"]
-    UGPU -->|"Linux: CUDA"| LRuntime["Default runtime: Ollama\n(ONNX Runtime or vLLM available as opt-in — vLLM = max throughput, Linux-native only)"]
-    UGPU -->|None| NoGPU
+    UGPU -->|Yes| UConsent{"Ollama installed?"}
+    UGPU -->|No| NoGPU
 
-    WRuntime --> Installed{"Ollama already installed?"}
-    MRuntime --> Installed
-    LRuntime --> Installed
+    WConsent -->|Yes| Pull["Pull model via hf.co/rishikesh/mcp-shield-qwen2.5-7b-gguf,\nrun full 3-Tier cascade"]
+    WConsent -->|No| AskW{"Ask consent to install Ollama"}
+    UConsent -->|Yes| Pull
+    UConsent -->|No| AskU{"Ask consent to install Ollama"}
 
-    Installed -->|Yes| Pull["Pull/verify model, run full 3-Tier cascade"]
-    Installed -->|No| Consent{"Ask user consent to install Ollama"}
-
-    Consent -->|Granted| AutoInstall["Install via winget / brew / apt (or show manual link), then pull model"]
-    Consent -->|Declined| NoGPU
-
+    AskW -->|Granted| AutoInstall["Install via winget (or show manual link)"]
+    AskU -->|Granted| AutoInstall2["Install via brew/apt (or show manual link)"]
     AutoInstall --> Pull
+    AutoInstall2 --> Pull
+
+    AskW -->|Declined| ONNXFallback["Fall back to ONNX Runtime\n(pip package only — no install consent needed)\nstill 100% local, still $0"]
+    AskU -->|Declined| ONNXFallback
+
+    ONNXFallback --> Pull
+
+    NoGPU --> Degraded["Tier 1 + Tier 2 only by default.\nOptional, explicit opt-in: cloud API\n(DeepSeek/OpenAI/Claude, Option C — user's own key, paid)"]
 ```
 
-|OS|Event Loop|Default Runtime|GPU-Accelerated Opt-In|If No GPU / Consent Declined|
+|OS|Event Loop|1st choice|If Ollama declined/not installed|If no usable local GPU at all|
 |:--|:--|:--|:--|:--|
-|**Windows**|`winloop` (uvloop-compatible API; `uvloop` itself does not run on Windows)|Ollama, installed with explicit user consent|ONNX Runtime + DirectML (any DX12 GPU, not NVIDIA-only)|Tier 1 + Tier 2 only, or cloud fallback|
-|**macOS**|`uvloop`|Ollama, installed with explicit user consent|ONNX Runtime + CoreML (Apple Silicon)|Tier 1 + Tier 2 only, or cloud fallback|
-|**Linux**|`uvloop`|Ollama, installed with explicit user consent|ONNX Runtime, or **vLLM** (native, highest throughput — officially Linux-only; Windows users get this only via WSL2, not natively)|Tier 1 + Tier 2 only, or cloud fallback|
+|**Windows**|`winloop` (`uvloop` itself does not run on Windows)|Ollama, installed only with explicit consent|**ONNX Runtime + DirectML** (any DX12 GPU) — plain pip install, no consent needed|Tier 1 + Tier 2 only, or opt-in cloud fallback|
+|**macOS**|`uvloop`|Ollama, same consent gate|**ONNX Runtime + CoreML** (Apple Silicon) — pip install, no consent needed|Tier 1 + Tier 2 only, or opt-in cloud fallback|
+|**Linux**|`uvloop`|Ollama, same consent gate|**ONNX Runtime** (pip install, no consent needed), or `vLLM` (native, highest throughput, Linux/WSL2-only, opt-in)|Tier 1 + Tier 2 only, or opt-in cloud fallback|
 
-**Why consent, specifically for Ollama**: unlike the pip-installed Python dependencies, Ollama is a separate application/daemon running outside the Python process. We ask before installing anything outside the package's own footprint — if declined, `@shield` runs Tier 1 + Tier 2 only and prints a clear warning that Tier 3 semantic classification is disabled, rather than silently degrading or silently installing software the developer didn't approve. The same consent gate applies to ONNX Runtime's platform-specific GPU execution providers where they require a separate driver/runtime install (e.g. DirectML), though the base ONNX Runtime pip package itself installs like any other dependency.
+**Why consent, specifically for Ollama, and why ONNX Runtime doesn't need it**: Ollama is a separate application/daemon running outside the Python process, so we ask before installing anything beyond the package's own footprint. ONNX Runtime is a normal pip dependency like any other in `requirements.txt` — no separate install, no separate consent gate, so it's the natural fallback rather than jumping straight to a degraded mode. Both paths still run the same GGUF/ONNX-converted weights 100% locally, at $0 — this is _not_ the same thing as falling back to HuggingFace's hosted Inference API, which runs on HF's own cloud GPUs and has real request limits and cost past its free tier. We deliberately don't use that: it would quietly reintroduce the cloud latency/cost problem the whole local-cascade design exists to avoid. "Cloud fallback" in this doc always means the explicit, opt-in, user's-own-key options already in the Multi-Model Provider Hub (DeepSeek/OpenAI/Claude) — never an automatic silent fallback.
 
-Multiple `@shield`-wrapped processes on one machine still share a single Ollama/vLLM daemon on localhost rather than each loading its own copy of the model into VRAM.
+**Download reliability — HuggingFace Hub file downloads (not Inference API) have per-5-minute rate limits**: 3,000 requests for anonymous access, shared across everyone on the same IP; 5,000 for a free authenticated account, per-user. A single model download rarely hits this alone, but several of us pulling the same model from the same campus/lab network at once could. We do **not** ship one shared token baked into the package — that would put everyone's downloads on one shared quota and expose a hardcoded credential in public package source, a bad look for a security tool specifically. Instead, `mcp-shield doctor` reads an optional `HF_TOKEN` env var if the developer has set one (their own free account) and falls back to anonymous access if not — anonymous is perfectly fine for normal single-user use, the token just matters on shared networks or during concentrated testing (like our own team's).
 
-This is a startup-time, visible decision (printed to stdout and shown in the dashboard's Model Settings tab), not a silent runtime guess — a developer should always know which tiers are actually protecting them, and what got installed on their machine to make that happen, before traffic starts flowing.
+Multiple `@shield`-wrapped processes on one machine still share a single Ollama/ONNX/vLLM daemon on localhost rather than each loading its own copy of the model into VRAM.
+
+This is a startup-time, visible decision (printed to stdout and shown in the dashboard's Model Settings tab), not a silent runtime guess — a developer should always know which tiers are actually protecting them, what got installed on their machine, and which network calls happened, before traffic starts flowing.
 
 ---
 
