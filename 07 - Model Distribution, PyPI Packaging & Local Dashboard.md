@@ -1,6 +1,6 @@
 # 07 - Model Hosting, PyPI Deployment & Local Dashboard Architecture
 
-> **Focus**: zero-cost model distribution, the PyPI release pipeline, the OS-aware runtime selection performed by `mcp-shield doctor`, and the localhost security dashboard — all aligned to the canonical design in [[02 - System Architecture & Technical Implementation]]. Stage tags follow `02` §8.
+> **Focus**: zero-cost model distribution, the PyPI release pipeline, the OS-aware runtime selection performed by `mcp-shield doctor`, and the localhost security dashboard — all aligned to the canonical design in [[02 - System Architecture & Technical Implementation]]. Stage tags follow `02` §9.
 
 ---
 
@@ -89,9 +89,10 @@ The dashboard gives visibility into traffic, verdicts, and pins. **Stage 1** shi
 A monitoring surface for a security product is itself an attack surface. CVE-2025-49596 — cited by our base paper — was exactly this: MCP Inspector exposed an unauthenticated localhost HTTP server that any web page open in the same browser could drive. The MCP-Shield dashboard therefore:
 
 - binds to `127.0.0.1` only, never `0.0.0.0`;
-- generates a bearer token on first run (stored in the `platformdirs` cache dir, `0600`) and **requires it on every endpoint, read and write, including from localhost** — the launch command prints a one-time URL carrying the token;
+- generates a bearer token on first run (stored in the `platformdirs` cache dir, readable only by the current user — POSIX `0600` / NTFS ACL) and **requires it on every endpoint, read and write, including from localhost** — the launch command prints a one-time URL carrying the token, which the page exchanges for an `HttpOnly`, `SameSite=Strict` session cookie on first load;
 - validates `Origin` and `Host` on every request and sets no permissive CORS headers, so a malicious tab cannot POST to it;
-- treats every mutating action ("Allow this pattern", re-pin, policy toggle) as authenticated, logged, and reversible.
+- treats every mutating action ("Allow this pattern", re-pin, policy toggle) as authenticated, logged, and reversible;
+- **never spawns a process from a web request.** The spec's Security Best Practices single out proxies that spawn stdio servers as an escalation path ("stdio transport security in proxy scenarios"): the dashboard can *write* a stdio server entry to `mcp-shield.toml`, but the proxy launches it only after confirmation in the terminal that runs the proxy, with the full command shown untruncated.
 
 ```
 Developer terminal  ──>  mcp-shield dashboard  ──>  FastAPI + web UI on http://127.0.0.1:8501/?token=…
@@ -186,7 +187,7 @@ graph LR
 └── 4. PLAYGROUND ─────────> send a test message, watch each tier decide
 ```
 
-Per-tool policies: privilege class, argument root allowlist, `requires_approval` (Stage 2 MRTR flow), a per-tool result-size cap for the DoS guard, and a taint opt-out for servers the developer explicitly trusts (logged, visible in the map).
+Per-tool policies: privilege class (config can only raise the class above the name heuristic and the server's annotations — see `02` §2, Tier 1), argument root allowlist, `requires_approval` (Stage 2 MRTR flow), a per-tool result-size cap for the DoS guard, and a taint opt-out for servers the developer explicitly trusts (logged, visible in the map). Registering a **stdio** server here writes the command to `mcp-shield.toml`; it is launched only after terminal confirmation, never from the web request itself.
 
 ---
 

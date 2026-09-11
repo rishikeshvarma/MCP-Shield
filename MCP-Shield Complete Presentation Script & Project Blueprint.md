@@ -17,6 +17,7 @@
 
                                   MCP-SHIELD
      Semantic LLM Firewall for Model Context Protocol in Multi-Agent Networks
+     (Registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
 
   An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety & Real-Time
                       Indirect Prompt Injection Defense
@@ -78,7 +79,7 @@ graph TD
 - ❌ **`ProtoGuard`** — too generic; the panel would not know which protocol.
 - ❌ **`SentinelMCP`** — "Sentinel" suggests logging; we block inline.
 - ❌ **`MCP-Firewall`** — hides the core contribution (semantic intent classification) behind a word associated with static rules.
-- 🏆 **`MCP-Shield: Semantic LLM Firewall for Model Context Protocol in Agent Networks`** — protocol-specific, active, semantic, multi-agent.
+- 🏆 **`MCP-Shield: Semantic LLM Firewall for Model Context Protocol in Agent Networks`** (registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS) — protocol-specific, active, semantic, multi-agent.
 - ⚠️ **Disclosure**: an unrelated open-source project, `riseandignite/mcp-shield` [25], is a 2025 *static scanner* of installed MCP configs. MCP-Shield (ours) is an inline runtime firewall; the difference is stated in the README and in §6.
 
 ---
@@ -301,7 +302,7 @@ mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
 # Stage 2: harden a server you write yourself (Tier 1 argument policy + classifier on free-text args)
 from mcp_shield import shield, SecurityConfig
 
-@shield(config=SecurityConfig(strict_mode=True))
+@shield(config=SecurityConfig(taint_policy="strict"))
 async def handle_mcp_request(json_rpc_payload: dict):
     return await execute_tool(json_rpc_payload)
 ```
@@ -339,7 +340,11 @@ graph TD
         T3 -->|"attack class"| Deny2
     end
 
-    Pass --> Taint["Session Taint State"] --> Pin["Capability Pin Store + Description Scan"] --> Out["Forward"]
+    Pass --> Taint["Session Taint State"]
+    Taint -->|"high-privilege call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
+    Taint --> Pin["Capability Pin Store + Description Scan"]
+    Pin -->|"manifest changed / description flagged"| Deny4["BLOCK: SecurityTamperingError"]
+    Pin --> Out["Forward"]
     Deny2 -.->|"Stage 2, off the hot path"| T4["Tier 4: Explainer SLM → dashboard"]
 ```
 
@@ -398,14 +403,16 @@ A deterministic JSON walker that yields every untrusted string with a context pr
 
 ## 8. Proposed Methodology
 
-### 8.1 Five-stage execution pipeline
+### 8.1 Five-phase execution pipeline
+
+_("Phase" is used for the build sequence so it is not confused with the **Stage 1 / Stage 2 / Future** delivery split in `00` §5 — all five phases below are Stage 1 work.)_
 
 ```mermaid
 graph LR
-    P1["Stage 01 - Dataset curation (train / held-out separation)"] --> P2["Stage 02 - Encoder classifier fine-tuning & calibration"]
-    P2 --> P3["Stage 03 - Proxy + three-tier cascade"]
-    P3 --> P4["Stage 04 - Pinning, description scan & session taint"]
-    P4 --> P5["Stage 05 - Held-out validation & release"]
+    P1["Phase 1 - Dataset curation (train / held-out separation)"] --> P2["Phase 2 - Encoder classifier fine-tuning & calibration"]
+    P2 --> P3["Phase 3 - Proxy + three-tier cascade"]
+    P3 --> P4["Phase 4 - Pinning, description scan & session taint"]
+    P4 --> P5["Phase 5 - Held-out validation & release"]
 ```
 
 [[MCP-Shield- Methodology.png]]
@@ -413,29 +420,29 @@ _(PNG export of an earlier version of this pipeline — regenerate from the Merm
 
 ### 8.2 Step-by-step
 
-#### Stage 01 — Dataset curation
+#### Phase 1 — Dataset curation
 - Assemble the training pool: public attack corpora (InjecAgent, MCP-AttackBench if released), synthetic MCP-shaped attacks from frontier models with structured output, and ~85% benign tool traffic with ≥25% hard negatives.
 - **Deduplicate globally, then split** (grouped by source document, stratified by label); augment the training split only.
 - Keep AgentDojo, MCPSecBench, and our adaptive red-team set **entirely out** of training and threshold selection.
 
-#### Stage 02 — Classifier fine-tuning & calibration
+#### Phase 2 — Classifier fine-tuning & calibration
 - Fine-tune `microsoft/deberta-v3-xsmall` (22M) → `mcp-shield-clf-small`; class-weighted cross-entropy; early stopping on recall at FPR = 0.5%; three seeds.
 - Temperature-scale on validation; select per-class thresholds for FPR ≤ 0.5%.
 - Export via `optimum` → ONNX → int8; publish on Hugging Face Hub with a model card.
 
-#### Stage 03 — Proxy & cascade
+#### Phase 3 — Proxy & cascade
 - Build `mcp-shield proxy` for Streamable HTTP (ASGI) and stdio; implement the untrusted-segment extractor, Tier 1 (headers, header ↔ body consistency, schema, argument policy), Tier 2 (cleared-content cache scoped by `ttlMs` / `cacheScope`, signatures, DoS guard), and Tier 3 (ONNX classifier with chunking/batching).
 - Implement `mcp-shield doctor` (execution-provider selection, download, self-test).
 
-#### Stage 04 — Pinning, description scan & session taint
+#### Phase 4 — Pinning, description scan & session taint
 - SHA-256 pin store per server; re-check on every listing and on `toolsListChanged`; classifier scan of descriptions at listing time.
 - Session taint state keyed by OAuth subject + `clientInfo` + transport peer; shingle/embedding overlap check on `write` / `execute` / `egress` calls; `strict` policy.
-- Minimal dashboard: traffic log, flagged-request inspector with exact-hash override, pin viewer — token on every endpoint.
+- Minimal dashboard: traffic log, flagged-request inspector with exact-hash override, pin viewer — token on every endpoint; the proxy's own listener validates `Host`, rejects browser `Origin` requests, and never spawns a process from a network request.
 
-#### Stage 05 — Validation & release
+#### Phase 5 — Validation & release
 - Run the held-out harness: ASR and utility on AgentDojo, ASR on MCPSecBench, adaptive red-team ASR, FPR on benign replay, p50/p95 latency on CPU and GPU, Prompt Guard 2 baseline; leave-one-source-out gaps.
 - Publish results with seeds and error bars; release to PyPI.
-- Stage 2 (decorator, state tracker, explainer, MRTR approval, full dashboard) begins only after Stage 1 numbers are published.
+- Delivery Stage 2 (decorator, state tracker, explainer, MRTR approval, full dashboard) begins only after these Stage 1 numbers are published.
 
 ---
 

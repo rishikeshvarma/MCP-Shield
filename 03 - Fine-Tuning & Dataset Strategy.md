@@ -69,13 +69,13 @@ One JSON object per line (`.jsonl`), directly loadable by 🤗 `datasets`:
 
 ```
 [TRAINING POOL]                                   [HELD-OUT EVALUATION — never trained on]
-├── A. Public attack corpora (~25%)               ├── AgentDojo (Debenedetti et al., 2024)
+├── A. Public attack corpora                      ├── AgentDojo (Debenedetti et al., 2024)
 │     InjecAgent, MCP-AttackBench (MCP-Guard,     ├── MCPSecBench (Yang, Wu & Chen, 2025)
 │     if released), HackAPrompt-style corpora     ├── Prompt Guard 2 comparison on the same sets
-├── B. Synthetic generation (~45%)                ├── Adaptive red-team set (ours, §9.3)
+├── B. Synthetic generation                       ├── Adaptive red-team set (ours, §9.3)
 │     current frontier models via structured      └── Benign traffic replay (ours, FPR)
 │     output; all 4 classes; MCP-shaped
-├── C. Benign tool traffic (~30%)
+├── C. Benign tool traffic
 │     ToolBench / xLAM traces, MCP-Bench-style
 │     task traces, captured logs from reference
 │     MCP servers (filesystem, GitHub, Postgres,
@@ -86,7 +86,7 @@ One JSON object per line (`.jsonl`), directly loadable by 🤗 `datasets`:
       "system prompt", "instructions" used innocently
 ```
 
-Percentages are of the *training* pool and are targets, not constraints. MCP-Bench (Wang et al., 2025) is a *capability* benchmark with no security focus — it is used only as a source of realistic benign tool traffic, never as security evidence.
+Sources are combined in whatever proportion is needed to reach the **class mix in §6, which is the binding constraint** (roughly: C supplies most of the benign share, B supplies attacks plus their benign twins and most hard negatives, A supplies the remaining attacks). MCP-Bench (Wang et al., 2025) is a *capability* benchmark with no security focus — it is used only as a source of realistic benign tool traffic, never as security evidence.
 
 ### B. Synthetic generation detail
 

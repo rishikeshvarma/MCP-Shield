@@ -2,11 +2,11 @@
 
 # 🛡️ MCP-Shield
 
-**Semantic LLM Firewall for Model Context Protocol (MCP) in Agent Networks**
+**Semantic LLM Firewall for Model Context Protocol (MCP) in Agent Networks** _(registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)_
 
 _An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety & Real-Time Indirect Prompt Injection Defense_
 
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org/) [![PyPI Version](https://img.shields.io/badge/pypi-mcp--shield--llm-green.svg)](https://pypi.org/project/mcp-shield-llm/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![Latency SLA](https://img.shields.io/badge/Latency-Target%20%3C50ms%20\(pending%20benchmark\)-yellow.svg)](#-benchmarks) [![Base Paper](https://img.shields.io/badge/Base%20Paper-arXiv%3A2601.17549-red.svg)](https://arxiv.org/abs/2601.17549) [![MCP Spec](https://img.shields.io/badge/MCP%20spec-2026--07--28-purple.svg)](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
+[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org/) [![PyPI Version](https://img.shields.io/badge/pypi-mcp--shield--llm-green.svg)](https://pypi.org/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![Latency SLA](https://img.shields.io/badge/Latency-Target%20%3C50ms%20\(pending%20benchmark\)-yellow.svg)](#-benchmarks) [![Base Paper](https://img.shields.io/badge/Base%20Paper-arXiv%3A2601.17549-red.svg)](https://arxiv.org/abs/2601.17549) [![MCP Spec](https://img.shields.io/badge/MCP%20spec-2026--07--28-purple.svg)](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
 
 [Features](#-key-features) • [Architecture](#-hot-path-cascade) • [Quickstart](#-quickstart) • [Dashboard](#-localhost-admin-dashboard) • [Benchmarks](#-benchmarks) • [Roadmap](#-roadmap) • [Citation](#-base-paper--academic-citation)
 
@@ -71,7 +71,11 @@ graph TD
         T3 -->|"injection / command_injection / description_poisoning"| Deny2
     end
 
-    Pass --> Taint["Session Taint State"] --> Pin["Capability Pin Store + Description Scan"] --> Out["Forward"]
+    Pass --> Taint["Session Taint State"]
+    Taint -->|"high-privilege call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
+    Taint --> Pin["Capability Pin Store + Description Scan"]
+    Pin -->|"manifest changed / description flagged"| Deny4["BLOCK: SecurityTamperingError"]
+    Pin --> Out["Forward"]
 ```
 
 Full tier definitions, error types, and the canonical latency table live in [`02 - System Architecture & Technical Implementation.md`](02%20-%20System%20Architecture%20%26%20Technical%20Implementation.md).
@@ -111,7 +115,7 @@ Point your host's MCP config at `http://127.0.0.1:8800` (or at the wrapped comma
 ```python
 from mcp_shield import shield, SecurityConfig
 
-@shield(config=SecurityConfig(strict_mode=True))
+@shield(config=SecurityConfig(taint_policy="strict"))
 async def handle_mcp_request(json_rpc_payload: dict):
     # Core MCP server / tool execution logic
     return {"jsonrpc": "2.0", "result": {"resultType": "complete", "content": []}, "id": json_rpc_payload.get("id")}
@@ -171,13 +175,13 @@ config = SecurityConfig(
 
 ### OS & runtime detection
 
-Stage 1 needs nothing beyond `pip install`: the classifier is a small ONNX model and runs on CPU on every OS. `mcp-shield doctor` picks an accelerator if one exists; nobody is left in a degraded mode because of their hardware.
+Stage 1 needs nothing beyond `pip install`: the classifier is a small ONNX model and runs on CPU on every OS. `mcp-shield doctor` picks an accelerator if one exists; nobody is left in a degraded mode because of their hardware. (Event-loop selection — `uvloop` on macOS/Linux, `winloop` on Windows — is an implementation detail covered in `07`.)
 
-|OS|Event loop|Hot-path runtime|Acceleration if present|Explainer (Stage 2, optional)|
-|:--|:--|:--|:--|:--|
-|**Windows**|`winloop`|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|Ollama (installed only with explicit consent) or opt-in cloud|
-|**macOS**|`uvloop`|ONNX Runtime, CPU int8|CoreML (Apple Silicon)|same|
-|**Linux**|`uvloop`|ONNX Runtime, CPU int8|CUDA|same|
+|OS|Hot-path runtime|Acceleration if present|Explainer (Stage 2, optional)|
+|:--|:--|:--|:--|
+|**Windows**|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|Ollama (installed only with explicit consent) or opt-in cloud|
+|**macOS**|ONNX Runtime, CPU int8|CoreML (Apple Silicon)|same|
+|**Linux**|ONNX Runtime, CPU int8|CUDA|same|
 
 Weights come from Hugging Face Hub's free file hosting (`rishikesh/mcp-shield-clf-small`), cached in the OS-appropriate directory via `platformdirs`, SHA-256 verified. An optional `HF_TOKEN` (free account) raises your download quota on shared networks; we never ship a shared token in the package. Full decision flow in [`07`](07%20-%20Model%20Distribution%2C%20PyPI%20Packaging%20%26%20Local%20Dashboard.md).
 
@@ -218,6 +222,8 @@ For reference only: the base paper's own defence, **ATTESTMCP** — capability a
 - **Bounded classifiers can be bypassed by adaptive attacks.** Controlled-release prompting (Fairoze et al., 2025) and distribution shift (Fomin et al., 2026) are real; our weights are open, so an attacker can optimise against them offline. We report adaptive-set ASR separately and rely on defence in depth (taint state, pinning, argument policy), not the classifier alone.
 - **Session taint catches verbatim and near-verbatim smuggling, not fully paraphrased intent.** That is why the classifier runs *before* content reaches the host; the principled fix is host-side control-flow separation (CaMeL), which a proxy cannot impose.
 - **Latency scales with content length.** The sub-50 ms target is per ≤512-token segment; very large tool results are chunked and batched, and their p95 is reported separately.
+- **The proxy protects only the servers routed through it.** Flows to servers the host still reaches directly are invisible; `mcp-shield doctor` warns when it sees unproxied servers in the host config. In stdio mode there are no `Mcp-*` headers, so Tier 1 works from the parsed body alone.
+- **The proxy is itself a local service and is hardened as one.** Following the spec's Security Best Practices, it binds to `127.0.0.1`, validates `Host`, rejects browser `Origin` requests, and never spawns a process from a network or dashboard request — stdio commands come only from the CLI or the config file, confirmed in the terminal.
 - **MRTR replaced Sampling, it did not remove the vector.** Sampling is deprecated in `2026-07-28` (12-month window); server-authored `inputRequests` now carry the same risk and are classified like any other untrusted text.
 
 ---

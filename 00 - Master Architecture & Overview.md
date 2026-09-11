@@ -1,6 +1,6 @@
-# MCP-Shield: Semantic LLM Firewall for Model Context Protocol in Agent Networks
+# MCP-Shield: Semantic LLM Firewall for Model Context Protocol in Agent Networks (registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
 
-> **Project Title**: MCP-Shield: An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety and Real-Time Indirect Prompt Injection Defense
+> **Project Title**: MCP-Shield: An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety and Real-Time Indirect Prompt Injection Defense (registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
 > **Domain**: Agentic AI, Protocol-Level AI Safety, Inter-Agent Access Control, Real-Time Injection Defense
 > **Target Package**: `pip install mcp-shield-llm` — primary interface `mcp-shield proxy`; secondary `@shield` decorator
 > **Target SLA**: End-to-end p95 decision latency **< 50 ms on a CPU-only laptop** (target, pending benchmark — canonical numbers in [[02 - System Architecture & Technical Implementation]])

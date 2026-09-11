@@ -1,6 +1,6 @@
 # 05 - Literature Survey & Research Papers
 
-> **This is the canonical bibliography.** The presentation script's §5 and §9 and the README citation are derived from this list. Every entry below has been checked against its arXiv page or primary source; entries from earlier drafts that could not be verified (three untitled "2026" papers with no authors, a "TechStories" survey, and a mis-attributed MCP-Guard citation) have been removed.
+> **This is the canonical bibliography.** The presentation script's §5 and §9 and the README citation are derived from this list. Every entry below has been checked against its arXiv page or primary source; entries from earlier drafts that could not be verified (three 2026 papers listed without authors or identifiers, a "TechStories" survey, and a mis-attributed MCP-Guard citation) have been removed.
 
 ---
 

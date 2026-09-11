@@ -14,7 +14,7 @@
 |**Taint tracking**|**Proxy-held session taint state** + argument-overlap check, not tags injected into strings.|A tag inside a string does not survive an LLM paraphrasing it and is trivially forgeable. State held outside the LLM is neither.|
 |**Tool-description poisoning**|**Pin (SHA-256) + scan** descriptions with the classifier at `tools/list` time.|Pinning only detects *change* (rug-pulls). Scanning catches first-contact poisoning, which pinning alone cannot.|
 |**Parameter command injection**|Tier 1 argument policy (path canonicalisation, shell-metacharacter rejection, URL allowlists) + per-tool approval flag.|gVisor is Linux-only, needs Docker/runsc, and costs 100ms–1s per call — wrong tool for individual developers on laptops. It moves to the enterprise roadmap.|
-|**Scope**|Explicit **Stage 1 / Stage 2 / Future** split (§8 below, and `00` §5).|One semester. Everything not in Stage 1 is deliberately deferred, not forgotten.|
+|**Scope**|Explicit **Stage 1 / Stage 2 / Future** split (§9 below, and `00` §5).|One semester. Everything not in Stage 1 is deliberately deferred, not forgotten.|
 
 ---
 
@@ -34,6 +34,15 @@ mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
 
 The host is pointed at the proxy instead of the server. From the host's point of view nothing changes; from the server's point of view nothing changes.
 
+**Transport notes.** In HTTP mode the proxy is an ASGI reverse proxy and forwards the spec's `Mcp-Method` / `Mcp-Name` headers unchanged. In **stdio mode there are no HTTP headers**: Tier 1 applies the allowlist to the parsed body only, and the header ↔ body check does not apply. Binary content (`blob` fields) is hashed for the taint buffer but not classified — only text is.
+
+**The proxy's own attack surface.** The spec's Security Best Practices name two risks that apply directly to this architecture, mitigated as follows:
+
+- *Local HTTP service reachable from a browser (DNS rebinding / cross-site POST).* The listener binds to `127.0.0.1`, validates the `Host` header against its own bound address, rejects any request carrying a browser `Origin` header (MCP hosts never send one), and accepts an optional bearer token configured in the host's MCP settings.
+- *"stdio transport security in proxy scenarios"* — a proxy that spawns stdio servers is an escalation path if an attacker can tell it what to spawn. The command the proxy spawns comes **only** from the CLI invocation or the on-disk `mcp-shield.toml`; no network endpoint and no dashboard action can start a process. Registering a stdio server through the Stage 2 dashboard writes the config and requires confirmation in the terminal that launched the proxy, with the full command shown untruncated.
+
+**Coverage limitation.** The proxy protects the servers routed through it. A host that keeps some servers unproxied leaves those flows invisible — `mcp-shield doctor` warns when the host config lists servers the proxy does not front.
+
 **What the proxy inspects, per direction:**
 
 |Direction|Message|What is untrusted|Which tiers run|
@@ -44,6 +53,7 @@ The host is pointed at the proxy instead of the server. From the host's point of
 |Server → Host|`tools/call` result|`content[].text`, string values in `structuredContent`|Tier 2 cache → Tier 3; result recorded in session taint state|
 |Server → Host|`resources/read`, `prompts/get` results|Resource text, prompt messages|Tier 2 → Tier 3; taint state|
 |Server → Host|`resultType: "input_required"` (MRTR `inputRequests`)|Server-authored prompts to the client|Tier 3 (this is the successor of the deprecated Sampling vector — see `01`)|
+|Server → Host|`notifications/progress` and other request-scoped notifications|Their free-text `message` fields|Tier 3 (short segments, batched); binary `blob` content is hashed, not classified|
 
 Because the proxy is an ASGI application in HTTP mode, Tier 1's header allowlist genuinely runs **before the request body is parsed** — that claim only holds in this mode.
 
@@ -54,13 +64,13 @@ For developers who *write* MCP servers and want their own tool execution protect
 ```python
 from mcp_shield import shield, SecurityConfig
 
-@shield(config=SecurityConfig(strict_mode=True))
+@shield(config=SecurityConfig(taint_policy="strict"))
 async def handle_mcp_request(json_rpc_payload: dict):
     # Core MCP Server / tool execution logic
     return await execute_tool(json_rpc_payload)
 ```
 
-The decorator receives an **already-parsed** payload, so it runs Tier 1 argument policy and Tier 3 on free-text arguments. It **cannot** see other servers, tool descriptions from other servers, or what the host does with results — say so honestly wherever the decorator is mentioned. An ASGI middleware variant (`mcp_shield.asgi.ShieldMiddleware`) gives server authors the header-level fast path as well.
+The decorator receives an **already-parsed** payload, so it runs Tier 1 argument policy and Tier 3 on free-text arguments. It **cannot** see other servers, tool descriptions from other servers, or what the host does with results — say so honestly wherever the decorator is mentioned. An ASGI middleware variant (`mcp_shield.asgi.ShieldMiddleware`) gives server authors the header-level fast path as well. The decorator cannot repair a server that builds shell strings from arguments: pass argument lists to `subprocess`, never `shell=True`, and treat the Tier 1 argument policy as the last line, not the first.
 
 ---
 
@@ -83,7 +93,9 @@ graph TD
     end
 
     Pass --> Taint["Session Taint State (proxy-held)"]
+    Taint -->|"write/execute/egress call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
     Taint --> Pin["Capability Pin Store (SHA-256, per server)"]
+    Pin -->|"manifest changed / description flagged"| Deny4["BLOCK: SecurityTamperingError"]
     Pin --> Out["Forward to host / server"]
     Deny2 -.->|"Stage 2, optional, off the hot path"| T4["Tier 4: Explainer SLM (local Ollama or opt-in cloud) → dashboard"]
 ```
@@ -96,7 +108,7 @@ Deterministic checks. No model.
 2. **Header ↔ body consistency**: the parsed body's `method` / `params.name` must equal the headers; a mismatch is rejected exactly as the spec's `HeaderMismatchError` (`-32020`) requires. A header-only allowlist would otherwise be bypassable by sending a benign header with a malicious body.
 3. **JSON-RPC 2.0 and schema conformance**: shape, `id`, `_meta` protocol version (`io.modelcontextprotocol/protocolVersion`), argument types against the pinned `inputSchema`.
 4. **Argument policy on flagged fields**: parameters whose schema or name marks them as path-, command-, or URL-like get: path canonicalisation + root allowlist; rejection of shell metacharacters (`;`, `|`, `&&`, `` ` ``, `$(`) in path/command fields; URL scheme and host allowlists for fetch-type parameters. This is the realistic, in-process defence against parameter-bound command injection.
-5. **Per-client tool allowlist** and per-tool privilege class (`read` / `write` / `execute` / `egress`), taken from config and from the MCP tool annotations (`destructiveHint`, `openWorldHint`) when present.
+5. **Per-client tool allowlist** and per-tool privilege class (`read` / `write` / `execute` / `egress`). The class is the *highest* of: the developer's config, a name heuristic (`execute_*`, `run_*`, `shell*` → `execute`; `send_*`, `post_*`, `fetch_*` → `egress`; `write_*`, `delete_*`, `update_*` → `write`), and the server's tool annotations (`destructiveHint`, `openWorldHint`). Annotations can only *raise* a class, never lower it — the spec requires clients to treat annotations as untrusted unless the server is trusted, and otherwise a malicious server would mark `execute_shell` as read-only to escape taint enforcement. A tool matched by nothing defaults to `write` (fail closed).
 
 Raises **`SecurityPolicyError`**.
 
@@ -104,8 +116,8 @@ Raises **`SecurityPolicyError`**.
 
 Tier 2 **never** decides that new untrusted text is safe. It exists to make the common case cheap and the known-bad case instant.
 
-- **Fast-accept**: exact SHA-256 hit on content already cleared by Tier 3, scoped by server + tool; list results additionally scoped by the spec's `ttlMs` / `cacheScope` so a cached verdict never outlives the server's own freshness hint. A near-duplicate embedding match (cosine > 0.97 against cleared content) is also a hit.
-- **Fast-reject**: exact or near matches against a local signature set of known injection strings and embeddings.
+- **Fast-accept**: **exact** SHA-256 hit on content already cleared by Tier 3, scoped by server + tool; list results additionally scoped by the spec's `ttlMs` / `cacheScope` so a cached verdict never outlives the server's own freshness hint. Near-duplicate matches are deliberately *not* accepted: appending a short injection to a long, previously-cleared document keeps its embedding almost unchanged, so similarity-based acceptance would be a bypass.
+- **Fast-reject**: exact or near-duplicate (embedding cosine) matches against a local signature set of known injection strings — similarity is safe in the *reject* direction.
 - **Context-DoS guard**: length caps and repetition-ratio / compression-ratio checks reject padding and recursive-text payloads before they reach the classifier or the host.
 
 Embeddings use a small local model (BGE-Micro / E5-small class, ONNX). The cache is an in-process LRU; no locks are needed because the proxy is single-process asyncio.
@@ -155,7 +167,7 @@ A deterministic walker over the JSON-RPC message that yields `(context_prefix, t
 
 1. **Session key**: OAuth 2.1 bearer subject (when the HTTP `Authorization` header is present) + `io.modelcontextprotocol/clientInfo` (name/version, sent on every request under the stateless spec) + transport peer (stdio child process, or HTTP client address). Sessions age out after a configurable idle window (default 30 min). The 2026-07-28 spec removed protocol-level sessions, so MCP-Shield keeps this state itself.
 2. **Recording**: every untrusted result forwarded to the host is added to the session's taint buffer as `TaintRecord{server, tool, sha256, shingles, embedding, ts}`.
-3. **Enforcement**: when the host later calls a tool whose privilege class is `write`, `execute`, or `egress` in a tainted session, the proxy measures overlap between the call's arguments and the taint buffer (shingle Jaccard and embedding similarity). Overlap above threshold → **`SecurityTaintViolationError`**. In `strict` policy, *any* `execute`/`egress` call in a tainted session is blocked until a human approves it.
+3. **Enforcement**: when the host later calls a tool whose privilege class is `write`, `execute`, or `egress` in a tainted session, the proxy measures overlap between the call's arguments and the taint buffer (5-gram shingle Jaccard and embedding similarity; initial thresholds Jaccard ≥ 0.3 *or* cosine ≥ 0.9, tuned on the Stage 1 benchmark). Overlap above threshold → **`SecurityTaintViolationError`**. In `strict` policy, *any* `execute`/`egress` call in a tainted session is blocked until a human approves it.
 4. **Human approval (Stage 2)**: instead of a hard block, the proxy can answer the host with an MRTR `input_required` result that asks the user to confirm — the spec-native way to put a human in the loop.
 
 **Honest limits.** The overlap check catches verbatim and near-verbatim smuggling (exfiltrating the poisoned document, passing an injected command through). It does not catch an instruction the host LLM has fully paraphrased — that is why Tier 3 classifies untrusted content *before* it reaches the host (prevention), with taint as defence in depth. The principled solution is to rewrite the host itself (CaMeL, Debenedetti et al. 2025); host-side marking (Spotlighting, Hines et al. 2024) is complementary. Nothing here is "cryptographic" and the docs no longer call it that.
@@ -175,11 +187,28 @@ A deterministic walker over the JSON-RPC message that yields `(context_prefix, t
 Per-session rolling window over Tier 3 probabilities and the tool-call sequence.
 
 - **Drift**: an exponentially weighted average of injection probability across turns; sustained drift above threshold escalates the session to `strict` taint policy even if no single turn was blocked — the defence against split, multi-turn injections.
-- **Loop breaker**: the same `tool + argument hash` repeated N times with no change in the result hash blocks the call as a zero-progress loop.
+- **Loop breaker**: the same `tool + argument hash` repeated N times (default N = 3) with no change in the result hash blocks the call as a zero-progress loop.
 
 ---
 
-## 7. Error Types (canonical)
+## 7. Configuration (canonical fields)
+
+```python
+from mcp_shield import SecurityConfig, ClassifierModel, ExplainerProvider
+
+SecurityConfig(
+    classifier_model=ClassifierModel.SMALL,   # SMALL (22M, default) | BASE (86M, Stage 2)
+    taint_policy="standard",                  # "standard": block on overlap | "strict": every execute/egress call in a tainted session needs approval
+    fpr_target=0.005,                         # selects the shipped operating threshold (default FPR <= 0.5%)
+    explainer=ExplainerProvider.NONE,         # NONE (default) | OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC (Stage 2, opt-in)
+)
+```
+
+The same fields live in `mcp-shield.toml` for the proxy. There is no separate `strict_mode` flag — `taint_policy="strict"` is the strict setting, and every code sample in this vault uses these names.
+
+---
+
+## 8. Error Types (canonical)
 
 |Error|Raised by|Meaning|
 |:--|:--|:--|
@@ -192,7 +221,7 @@ Every block is logged with the tier, class, probability, and the offending segme
 
 ---
 
-## 8. Stage Tags Used Across the Vault
+## 9. Stage Tags Used Across the Vault
 
 - **Stage 1 (this semester, MVP)**: `mcp-shield proxy` (HTTP + stdio), Tier 1–3, untrusted-segment extractor, pin + scan, session taint with overlap check, `mcp-shield doctor`, benchmark harness, minimal dashboard (traffic log + flagged inspector), PyPI release.
 - **Stage 2**: `@shield` decorator + ASGI middleware, state tracker (drift + loop breaker), Tier 4 explainer, MRTR-based human approval, full dashboard (topology map, tool hub, model switcher).

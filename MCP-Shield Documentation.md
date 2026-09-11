@@ -2,7 +2,7 @@
 
 Welcome to the central brain for **MCP-Shield** — the Final Year Major Project of Rishikesh Varma, Vineel Yerubandi, Shivatarak Reddy and ES Heron (KMIT, CSE — AI & ML, 2025–2026).
 
-> **Project Title**: MCP-Shield: Semantic LLM Firewall for Model Context Protocol in Agent Networks
+> **Project Title**: MCP-Shield: Semantic LLM Firewall for Model Context Protocol in Agent Networks (registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
 > **Domain**: Agentic AI Security, Protocol-Level Safety & Real-Time Injection Defense
 > **Primary Base Paper**: [[Breaking the Protocol.pdf]] — Maloyan & Namiot, arXiv:2601.17549 (2026)
 > **Canonical documents**: architecture = [[02 - System Architecture & Technical Implementation]]; bibliography = [[05 - Literature Survey & Research Papers]]. Everything else in this vault defers to those two.
