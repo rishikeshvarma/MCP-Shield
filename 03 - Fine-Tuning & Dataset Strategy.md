@@ -8,13 +8,13 @@
 
 |Model ID|Base checkpoint|Params|Why|
 |:--|:--|:--|:--|
-|`mcp-shield-clf-small` _(Stage 1 default)_|`microsoft/deberta-v3-xsmall` (MIT)|~22M|Same lineage as Llama Prompt Guard 2-22M (19.3 ms / 512 tokens on an A100 in Meta's PyTorch figures); int8 ONNX runs on any laptop CPU|
-|`mcp-shield-clf-base` _(Stage 2)_|`microsoft/mdeberta-v3-base` (MIT)|~86M|Multilingual, higher accuracy; ~2–4× the latency|
+|`mcp-shield-clf` _(the only model)_|`microsoft/mdeberta-v3-base` (MIT)|~86M backbone (+ 250k-token vocabulary)|Same lineage as Llama Prompt Guard 2-86M (92.4 ms / 512 tokens on an A100 in Meta's unoptimised PyTorch figures); multilingual, so non-English injections are in scope; fp16 ONNX on any GPU, int8 on a laptop CPU|
 
 - **Why not Prompt Guard 2 weights directly**: they ship under the Llama community licence; MCP-Shield is Apache-2.0. Prompt Guard 2 is used as a **baseline in evaluation**, which is the more useful role anyway.
 - **Why not a 7B generative model**: it does not fit the latency budget (see `02` §0) and, per CASCADE (Turgut & Gümüş, 2026), a local review LLM added 2.51 s per call and changed no outcomes. A generative model remains useful as an *off-path explainer* (§10).
 - **Runtime**: export with `optimum` → ONNX → dynamic int8 quantisation; served by ONNX Runtime on CPU by default, with CUDA / DirectML / CoreML execution providers used automatically when present (`07` §6).
-- **Training hardware**: a 22M–86M encoder fine-tunes in minutes to an hour on any consumer GPU (our RTX 5060 Ti / RTX 3050 dev machines) and is feasible on CPU. No QLoRA, no gradient-checkpointing gymnastics — that complexity belonged to the abandoned 7B plan.
+- **Why one 86M model rather than a 22M one**: accuracy and multilingual coverage. The price is ~4× the CPU latency of the 22M variant — still a small fraction of a 500–2000 ms agent turn. Fallback order if Phase 5 says CPU latency is unacceptable: shorter chunks (256 tokens) → ONNX graph optimisation → only then a smaller backbone.
+- **Training hardware**: an 86M encoder fine-tunes in under an hour on the RTX 5060 Ti and in a few hours on the RTX 3050 (4 GB: batch 8 with gradient accumulation, fp16). CPU-only training is possible but slow (hours to a day) and not the plan. No QLoRA, no gradient-checkpointing gymnastics — that complexity belonged to the abandoned 7B plan.
 
 ---
 
@@ -136,18 +136,19 @@ Class-weighted cross-entropy (inverse-frequency weights, capped) handles the imb
 
 Full fine-tune (no adapters needed at this size), 🤗 `transformers` `Trainer`:
 
-|Hyperparameter|`clf-small` (22M)|`clf-base` (86M)|Rationale|
-|:--|:--|:--|:--|
-|Learning rate|`3e-5`|`2e-5`|Standard DeBERTa-v3 fine-tuning range|
-|Epochs|`3–5`|`3`|Early stopping on validation metric below|
-|Batch size|`32`|`16` (+ grad. accumulation 2)|Fits any consumer GPU|
-|Max sequence length|`512`|`512`|Matches the runtime chunk size|
-|Warm-up|6% of steps|6%|Linear decay after|
-|Weight decay|`0.01`|`0.01`|L2 on non-bias weights|
-|Label smoothing|`0.05`|`0.05`|Softens over-confident logits before calibration|
-|Loss|Class-weighted CE|Class-weighted CE|§6|
-|Early-stopping metric|**Recall at FPR = 0.5% on validation**|same|Optimises the operating point we actually deploy, not raw accuracy|
-|Seeds|3 (report mean ± sd)|3|Variance is reported, not hidden|
+|Hyperparameter|`mcp-shield-clf` (86M)|Rationale|
+|:--|:--|:--|
+|Learning rate|`2e-5`|Standard DeBERTa-v3 fine-tuning range|
+|Epochs|`3` (up to 5 with early stopping)|Early stopping on the validation metric below|
+|Batch size|`16` (+ grad. accumulation 2); `8` × 4 on a 4 GB card|Fits any consumer GPU|
+|Precision|fp16 mixed|Halves memory and time on consumer GPUs|
+|Max sequence length|`512`|Matches the runtime chunk size|
+|Warm-up|6% of steps|Linear decay after|
+|Weight decay|`0.01`|L2 on non-bias weights|
+|Label smoothing|`0.05`|Softens over-confident logits before calibration|
+|Loss|Class-weighted CE|§6|
+|Early-stopping metric|**Recall at FPR = 0.5% on validation**|Optimises the operating point we actually deploy, not raw accuracy|
+|Seeds|3 (report mean ± sd)|Variance is reported, not hidden|
 
 ---
 
@@ -171,8 +172,8 @@ Full fine-tune (no adapters needed at this size), 🤗 `transformers` `Trainer`:
 |**FPR**|Fraction of benign held-out segments blocked|**< 0.5%**|
 |**Recall @ FPR 0.5%**|Attack segments flagged at the deployed threshold|reported|
 |**Utility retained**|Task success on AgentDojo benign tasks with vs. without MCP-Shield|**≥ 95%** of undefended|
-|**Latency**|p50 / p95 per ≤512-token segment and end-to-end, CPU-only and GPU; the CPU-only number is taken on a standard 4-vCPU GitHub Actions runner so anyone can reproduce it, with our laptops reported alongside|**p95 < 50 ms end-to-end, CPU**|
-|**Baseline comparison**|Same held-out sets through Prompt Guard 2-22M/86M unmodified|reported|
+|**Latency**|p50 / p95 per ≤512-token segment and end-to-end, CPU-only and GPU; the CPU-only number is taken on a standard 4-vCPU GitHub Actions runner so anyone can reproduce it, with our laptops reported alongside|**p95 < 50 ms with a GPU; < 250 ms CPU-only**|
+|**Baseline comparison**|Same held-out sets through Prompt Guard 2-86M unmodified (22M reported for reference)|reported|
 
 Problem-scale reference: 52.8% ASR for unprotected MCP and 12.4% under ATTESTMCP, both from the base paper — quoted as context, never as MCP-Shield results.
 

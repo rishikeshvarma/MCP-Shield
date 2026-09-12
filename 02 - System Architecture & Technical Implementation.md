@@ -9,7 +9,7 @@
 |Decision|Choice|Why (short)|
 |:--|:--|:--|
 |**Where MCP-Shield sits**|**`mcp-shield proxy`** between the MCP host and its servers is the primary product. The `@shield` decorator is a secondary, server-side integration.|The Confused Deputy is the *host* LLM; only a proxy on the host side can see every server's tool descriptions, every tool result, and cross-server flows. A decorator inside one server cannot.|
-|**Tier 3 model**|A **fine-tuned small encoder classifier** (DeBERTa-v3 lineage, 22M default / 86M optional), not a 7B generative SLM.|Meta's own numbers for the same model class are 19.3ms (22M) / 92.4ms (86M) per 512 tokens on an A100; an independent 2026 study (CASCADE) measured a local review LLM at **2.51s per call**. Only the encoder fits a sub-50ms budget — and it runs on CPU, so no-GPU laptops get full protection.|
+|**Tier 3 model**|A **fine-tuned encoder classifier** — one model, `mcp-shield-clf`, mDeBERTa-v3-base lineage (~86M backbone) — not a 7B generative SLM.|Meta's own number for the same 86M model class is 92.4 ms per 512 tokens on an A100 in unoptimised PyTorch; an independent 2026 study (CASCADE) measured a local review LLM at **2.51 s per call**. The encoder decides in tens of milliseconds on a GPU and under a quarter-second on CPU — under a tenth of a typical 500–2000 ms agent turn — so no-GPU laptops still get full protection. The 86M model is chosen over the 22M variant for accuracy and multilingual coverage.|
 |**What decides Tier 3 runs**|**Source trust**, not an anomaly score. All untrusted free text is classified; Tier 2 is a cache, not a gate.|A cascade that only classifies "suspicious-looking" text is bypassed by any novel injection that doesn't resemble known ones — the exact weakness we criticise in vector-only tools.|
 |**Taint tracking**|**Proxy-held session taint state** + argument-overlap check, not tags injected into strings.|A tag inside a string does not survive an LLM paraphrasing it and is trivially forgeable. State held outside the LLM is neither.|
 |**Tool-description poisoning**|**Pin (SHA-256) + scan** descriptions with the classifier at `tools/list` time.|Pinning only detects *change* (rug-pulls). Scanning catches first-contact poisoning, which pinning alone cannot.|
@@ -80,14 +80,14 @@ The decorator receives an **already-parsed** payload, so it runs Tier 1 argument
 graph TD
     In["Incoming MCP message (host → server or server → host)"] --> Ext["Untrusted-Segment Extractor (deterministic, no model)"]
 
-    subgraph Cascade["Hot-Path Cascade (end-to-end p95 target: <50ms on CPU, pending benchmark)"]
+    subgraph Cascade["Hot-Path Cascade (end-to-end p95 target: <50 ms GPU / <250 ms CPU, pending benchmark)"]
         Ext --> T1["Tier 1: Structural & Policy Gate (<1ms)"]
         T1 -->|"Policy violation"| Deny1["BLOCK: SecurityPolicyError"]
         T1 -->|"No untrusted free text"| Pass
         T1 -->|"Untrusted free text present"| T2["Tier 2: Cache & Signature Layer (1–5ms)"]
         T2 -->|"Exact/near hit on already-cleared content"| Pass["ALLOW / Forward"]
         T2 -->|"Known-bad signature or DoS guard"| Deny2["BLOCK: SecurityInjectionError"]
-        T2 -->|"New content (default path)"| T3["Tier 3: Encoder Injection Classifier (≤20ms GPU / ≤40ms CPU per ≤512-token segment)"]
+        T2 -->|"New content (default path)"| T3["Tier 3: Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per ≤512-token segment)"]
         T3 -->|"benign"| Pass
         T3 -->|"indirect_injection / command_injection / description_poisoning"| Deny2
     end
@@ -126,14 +126,15 @@ Embeddings use a small local model (BGE-Micro / E5-small class, ONNX). The cache
 
 |Model ID|Lineage|Params|Target latency (≤512-token segment)|Role|
 |:--|:--|:--|:--|:--|
-|`mcp-shield-clf-small` _(default)_|`microsoft/deberta-v3-xsmall` (MIT)|~22M|**≤20ms GPU / ≤40ms CPU** (ONNX Runtime, int8)|Runs everywhere, including CPU-only laptops|
-|`mcp-shield-clf-base`|`microsoft/mdeberta-v3-base` (MIT)|~86M|~2–4× slower|Higher accuracy, multilingual; opt-in|
+|`mcp-shield-clf` _(the only Stage 1 model)_|`microsoft/mdeberta-v3-base` (MIT)|~86M backbone (+ 250k-token vocabulary)|**≤40 ms GPU / ≤200 ms CPU** (ONNX Runtime; fp16 on GPU, int8 on CPU)|Multilingual; runs everywhere, fastest with a GPU|
 
 - **Task**: multi-class sequence classification over one untrusted text segment with a compact context prefix (`[server=github tool=get_issue field=content[0].text]`). Classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
 - **Runs on**: every new untrusted free-text segment (tool results, resource contents, tool/prompt descriptions, MRTR `inputRequests`, free-text call arguments). Skipped only when Tier 1 finds no free text.
-- **Long content**: chunked at ≤512 tokens with overlap and classified as a batch; a segment is flagged if any chunk is. Latency scales with content length — the sub-50ms target applies per ≤512-token segment and large tool outputs are reported separately in benchmarks.
+- **Long content**: chunked at ≤512 tokens with overlap and classified as a batch; a segment is flagged if any chunk is. Latency scales with content length — the targets apply per ≤512-token segment (typical tool outputs are far shorter and proportionally faster) and large tool outputs are reported separately in benchmarks.
 - **Calibration and the abstain band**: temperature-scaled probabilities; the **block threshold** is chosen on validation hard negatives for **FPR ≤ 0.5%** (see `03`). Below it sits an **abstain band** (its lower edge set at FPR ≈ 2%): a segment scoring inside the band is forwarded, but the session is escalated to `strict` taint policy and the item is queued in the flagged-request inspector for review. This is the runtime answer to distribution shift — a classifier that is unsure does not silently pass content, it raises the guard. Verdicts carry the calibrated probability, which is what the dashboard shows.
-- **Why this model class**: Meta reports 19.3ms (22M) and 92.4ms (86M) per 512 tokens on an A100 for the same DeBERTa lineage (Llama Prompt Guard 2 model card, 2025); Prompt Guard 2 itself is used as an evaluation baseline, not as base weights, because it ships under the Llama community licence and MCP-Shield is Apache-2.0.
+- **Why this model class**: Meta reports 92.4 ms per 512 tokens on an A100 (unoptimised PyTorch) for the same 86M mDeBERTa lineage (Llama Prompt Guard 2 model card, 2025) — ONNX fp16 on a consumer GPU is expected to come in well under that, and int8 on CPU within the 200 ms target. Prompt Guard 2 itself is used as an evaluation baseline, not as base weights, because it ships under the Llama community licence and MCP-Shield is Apache-2.0.
+- **Why one 86M model rather than a 22M one**: accuracy and multilingual coverage (non-English injections are a known bypass). The price is roughly 4× the CPU latency of the 22M variant, accepted because even the CPU figure is a small fraction of an agent turn. If Phase 5 shows CPU latency is unacceptable, the fallback order is shorter chunks (256 tokens) → ONNX graph optimisation → only then a smaller backbone.
+- **Why the weights are not secret**: anyone who can `pip install` the package can copy the model file out of the cache directory, so "hidden in system files" is obfuscation, not secrecy — and security that depends on the mechanism staying hidden fails the moment one copy leaks (Kerckhoffs's principle). Two options actually change the picture: (a) serving the classifier from our own server, which contradicts the $0, local, private design; (b) gating the download behind a licence-accepting Hugging Face account and **retraining on a cadence** so a leaked snapshot ages — a mild hardening that delays white-box attacks at the cost of one login per user. Stage 1 ships open weights and states the limitation; gated + rotated distribution is a Stage 2 option if the adaptive-set results justify the friction.
 
 Raises **`SecurityInjectionError`** with the class and probability.
 
@@ -147,8 +148,8 @@ A generative model (e.g. `Qwen3-8B` / `Llama-3.1-8B` via Ollama, installed only 
 |:--|:--|:--|
 |Tier 1|< 1 ms|Always|
 |Tier 2|1–5 ms|Untrusted text present|
-|Tier 3 (`clf-small`)|≤ 20 ms GPU / ≤ 40 ms CPU|Per ≤512-token segment, ONNX Runtime int8|
-|**End-to-end p95**|**< 50 ms**|CPU-only laptop, ≤512-token segments|
+|Tier 3 (`mcp-shield-clf`)|≤ 40 ms GPU / ≤ 200 ms CPU|Per ≤512-token segment; ONNX Runtime fp16 (GPU) / int8 (CPU)|
+|**End-to-end p95**|**< 50 ms with a GPU · < 250 ms CPU-only**|≤512-token segments; under a tenth of a typical 500–2000 ms agent turn|
 |Tier 4|none|Off the hot path|
 
 ---
@@ -196,10 +197,10 @@ Per-session rolling window over Tier 3 probabilities and the tool-call sequence.
 ## 7. Configuration (canonical fields)
 
 ```python
-from mcp_shield import SecurityConfig, ClassifierModel, ExplainerProvider
+from mcp_shield import SecurityConfig, ExplainerProvider
 
 SecurityConfig(
-    classifier_model=ClassifierModel.SMALL,   # SMALL (22M, default) | BASE (86M, Stage 2)
+    classifier_model="mcp-shield-clf",        # the single 86M classifier shipped in Stage 1 (pinned by version in the model card)
     taint_policy="standard",                  # "standard": block on overlap | "strict": every execute/egress call in a tainted session needs approval
     fpr_target=0.005,                         # selects the shipped operating threshold (default FPR <= 0.5%)
     explainer=ExplainerProvider.NONE,         # NONE (default) | OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC (Stage 2, opt-in)
@@ -227,5 +228,5 @@ Every block is logged with the tier, class, probability, and the offending segme
 
 - **Stage 1 — Core (this semester, built first)**: `mcp-shield proxy` (HTTP + stdio), Tier 1–3 with the abstain band, untrusted-segment extractor, pin + scan + first-contact quarantine, session taint with overlap check and probe detection, MRTR provenance banner, `mcp-shield doctor` / `install`, benchmark harness (including the CI CPU-only baseline), minimal dashboard (traffic log + flagged inspector + pin viewer), PyPI release.
 - **Stage 1E — Enterprise Basics (this semester, built last, cut-line protected)**: structured JSONL audit log + OTLP export with `_meta` trace-context propagation; Dockerfile / docker-compose and a plain Kubernetes sidecar manifest; OAuth 2.1 bearer validation at the proxy (JWKS, `iss` / `aud` / `exp`) with a basic policy map (subject or role → allowed servers, tools and maximum privilege class); per-client sections in `mcp-shield.toml`. Built only after Stage 1 Core is benchmarked; if it slips, the thesis is unaffected. Details in `07` §7.
-- **Stage 2 (next semester)**: `@shield` decorator + ASGI middleware, state tracker (drift + loop breaker), Tier 4 explainer, MRTR-based human approval, full dashboard (topology map, tool hub, model switcher), `clf-base`.
+- **Stage 2 (next semester)**: `@shield` decorator + ASGI middleware, state tracker (drift + loop breaker), Tier 4 explainer, MRTR-based human approval, full dashboard (topology map, tool hub, model switcher).
 - **Future — Enterprise Advanced**: Envoy / service-mesh filter, eBPF interception, SIEM connectors (Splunk, Datadog, Sentinel), IAM sync (Vault, Okta / Entra ID), gVisor sandboxing, dashboard SSO, central policy server.

@@ -3,7 +3,7 @@
 > **Project Title**: MCP-Shield: An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety and Real-Time Indirect Prompt Injection Defense (registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
 > **Domain**: Agentic AI, Protocol-Level AI Safety, Inter-Agent Access Control, Real-Time Injection Defense
 > **Target Package**: `pip install mcp-shield-llm` — primary interface `mcp-shield proxy`; secondary `@shield` decorator
-> **Target SLA**: End-to-end p95 decision latency **< 50 ms on a CPU-only laptop** (target, pending benchmark — canonical numbers in [[02 - System Architecture & Technical Implementation]])
+> **Target SLA**: End-to-end p95 decision latency **< 50 ms with a GPU, < 250 ms CPU-only** (targets, pending benchmark — canonical numbers in [[02 - System Architecture & Technical Implementation]])
 > **Naming note**: unrelated to `riseandignite/mcp-shield`, a 2025 static scanner for installed MCP server configs. MCP-Shield (this project) is an inline runtime firewall; see [[01 - Threat Model & Vulnerabilities]] for the comparison.
 
 ---
@@ -58,7 +58,7 @@
 |**Protocol awareness**|None|Tool descriptions at scan time|None|Every JSON-RPC message type, both directions, `2026-07-28` headers and MRTR|
 |**Data scope**|Ingress only|Descriptions only|Whatever the app passes it|**Bidirectional**: descriptions, results, resources, MRTR input requests, call arguments|
 |**Runtime state**|Stateless|Point-in-time|Stateless|Session taint state + capability pin store (+ multi-turn tracker in Stage 2)|
-|**Latency**|Fast but blind|Not inline|~20–90 ms per 512 tokens (Meta's figures)|**< 50 ms end-to-end target** on CPU|
+|**Latency**|Fast but blind|Not inline|~20–90 ms per 512 tokens (Meta's figures)|**< 50 ms GPU / < 250 ms CPU** end-to-end target|
 |**Cost**|Infra|Free / API-backed|Free|**$0** — small ONNX model auto-downloaded, runs locally|
 
 ---
@@ -73,7 +73,7 @@ graph TD
     subgraph Inside["Inside the proxy — per message"]
         Ext["Untrusted-Segment Extractor"] --> T1["Tier 1: Structural & Policy Gate (<1ms)"]
         T1 --> T2["Tier 2: Cache & Signature Layer (1–5ms)"]
-        T2 --> T3["Tier 3: Encoder Injection Classifier (≤40ms CPU per segment)"]
+        T2 --> T3["Tier 3: Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per segment)"]
         T3 --> Taint["Session Taint State"]
         Taint --> Pin["Capability Pin Store + Description Scan"]
     end
@@ -90,9 +90,9 @@ Full tier definitions, the canonical latency table, and error types: [[02 - Syst
 
 |Stage|Deliverables|Status|
 |:--|:--|:--|
-|**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (Streamable HTTP + stdio) · Tier 1 policy gate (every string argument scanned) · Tier 2 cache/signature layer · Tier 3 encoder classifier (`mcp-shield-clf-small`, ONNX) with abstain band · untrusted-segment extractor · capability pinning + description scan + first-contact quarantine · session taint state with overlap check and probe detection · MRTR provenance banner · `mcp-shield doctor` and `mcp-shield install` · benchmark harness on held-out suites with a CI CPU-only baseline · minimal dashboard (traffic log, flagged-request inspector, pin viewer) · PyPI release|In progress|
+|**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (Streamable HTTP + stdio) · Tier 1 policy gate (every string argument scanned) · Tier 2 cache/signature layer · Tier 3 encoder classifier (`mcp-shield-clf`, 86M, ONNX) with abstain band · untrusted-segment extractor · capability pinning + description scan + first-contact quarantine · session taint state with overlap check and probe detection · MRTR provenance banner · `mcp-shield doctor` and `mcp-shield install` · benchmark harness on held-out suites with a CI CPU-only baseline · minimal dashboard (traffic log, flagged-request inspector, pin viewer) · PyPI release|In progress|
 |**Stage 1E — Enterprise Basics (this semester, built last)**|Structured JSONL audit log + OTLP export with `_meta` trace-context · Dockerfile / docker-compose + plain Kubernetes sidecar manifest · OAuth 2.1 bearer validation (JWKS, `iss`/`aud`/`exp`) + basic policy map (subject or role → servers, tools, maximum privilege class) · per-client config sections|Scheduled as Phase 6; cut first if validation runs late|
-|**Stage 2 (next semester)**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama, consent-gated; or opt-in cloud) · MRTR-based human approval · full dashboard (topology map, tool hub, model switcher) · `mcp-shield-clf-base`|Planned|
+|**Stage 2 (next semester)**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama, consent-gated; or opt-in cloud) · MRTR-based human approval · full dashboard (topology map, tool hub, model switcher)|Planned|
 |**Future — Enterprise Advanced**|Envoy / service-mesh filter · eBPF interception · SIEM connectors (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID) · gVisor sandboxing · dashboard SSO · central policy server|Roadmap only|
 
 Anything in a later stage is described in this vault as a design, not as a delivered feature.
@@ -102,7 +102,7 @@ Anything in a later stage is described in this vault as a design, not as a deliv
 |Weeks|Phase|Deliverable|Split|
 |:--|:--|:--|:--|
 |1–2|Phase 1 — Dataset|Minimum viable dataset (≥ 20k segments), global dedup + grouped split, held-out suites frozen|2 on data · 2 on proxy skeleton|
-|3–4|Phase 2 — Classifier|`clf-small` fine-tuned, calibrated (block + abstain thresholds), ONNX-exported, model card|2 on model · 2 on Tier 1/2|
+|3–4|Phase 2 — Classifier|`mcp-shield-clf` fine-tuned, calibrated (block + abstain thresholds), ONNX-exported, model card|2 on model · 2 on Tier 1/2|
 |5–7|Phase 3 — Proxy + cascade|HTTP + stdio proxy, extractor, Tier 1–3 wired, `doctor`, `install`|all|
 |8–9|Phase 4 — Pin, scan, taint, dashboard|Pin store + quarantine, taint state + probe detection, minimal dashboard|2 + 2|
 |10–11|Phase 5 — Validation|Held-out + adaptive benchmarks, CI CPU baseline, PyPI release|all|

@@ -8,7 +8,7 @@
 
 ### The packaging picture after the encoder decision
 
-The Stage 1 hot-path model is a **~22M-parameter encoder** (`mcp-shield-clf-small`, ~25 MB as int8 ONNX; the Stage 2 `clf-base` is ~90 MB). The earlier draft's problem — a 4–14 GB generative model that could never fit PyPI's 100 MB limit and needed a GPU — no longer exists. The small model *could* be bundled in the wheel, but we keep weights on Hugging Face Hub so that retrained classifiers ship without a package release.
+The Stage 1 hot-path model is a **~86M-backbone encoder** (`mcp-shield-clf`, mDeBERTa-v3-base lineage; roughly 300 MB as int8 ONNX because of its 250k-token vocabulary, ~550 MB as fp16). The earlier draft's problem — a 4–14 GB generative model that needed a GPU — no longer exists, but 300 MB still exceeds PyPI's 100 MB limit, so weights live on Hugging Face Hub, which also lets retrained classifiers ship without a package release.
 
 ```
 1. Classifier weights (.onnx + tokenizer)  ──>  Hugging Face Hub (free file hosting)
@@ -17,7 +17,7 @@ The Stage 1 hot-path model is a **~22M-parameter encoder** (`mcp-shield-clf-smal
 4. Runtime  ──>  ONNX Runtime, 100% local, CPU by default, GPU execution provider if present — $0
 ```
 
-1. **Hugging Face Hub hosting**: `rishikesh/mcp-shield-clf-small` and `rishikesh/mcp-shield-clf-base`, each with a model card carrying the numbers from `03` §9 (held-out ASR, FPR, LOSO gap, seeds).
+1. **Hugging Face Hub hosting**: `rishikesh/mcp-shield-clf`, versioned, with a model card carrying the numbers from `03` §9 (held-out ASR, FPR, LOSO gap, seeds).
 2. **Download and cache**: `huggingface_hub` downloads into the directory `platformdirs` resolves for the OS (`~/.cache/mcp-shield/` on Linux, `~/Library/Caches/mcp-shield/` on macOS, `%LOCALAPPDATA%\mcp-shield\Cache` on Windows). Files are checksum-verified against the model card's published SHA-256 before use.
 3. **Rate limits and tokens**: Hub file downloads have per-5-minute request limits that are lower for anonymous access and shared across an IP — several teammates pulling on the same campus network can hit them. An optional `HF_TOKEN` (free account) raises the per-user quota. **We do not ship a shared token in the package**: it would put every user on one quota and embed a credential in public source — unacceptable for a security tool.
 4. **Nothing runs off-device.** This is Hub *file storage*, not the Hugging Face Inference API. After the one-time download, no network call is made on the hot path.
@@ -112,7 +112,7 @@ graph TD
     subgraph S2["Stage 2 modules"]
         UI --> M4["4. Topology graph & agent mesh map"]
         UI --> M5["5. Tool hub & per-tool policy editor"]
-        UI --> M6["6. Model settings (clf-small / clf-base, explainer provider)"]
+        UI --> M6["6. Model settings (classifier version, explainer provider)"]
     end
 ```
 
@@ -146,7 +146,7 @@ mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
 mcp-shield dashboard --port 8501
 
 # Download / verify classifier weights
-mcp-shield pull-model --model clf-small
+mcp-shield pull-model --model mcp-shield-clf
 
 # Inspect or accept capability pins for a server
 mcp-shield pin --server github --show
@@ -218,7 +218,7 @@ graph TD
     EP -->|"Apple Silicon"| CoreML["CoreMLExecutionProvider"]
     EP -->|"none of the above"| CPU["CPUExecutionProvider (int8) — full Tier 1–3 still runs"]
 
-    CUDA --> Pull["Download clf-small from HF Hub → cache dir; verify SHA-256"]
+    CUDA --> Pull["Download mcp-shield-clf from HF Hub → cache dir; verify SHA-256"]
     DML --> Pull
     CoreML --> Pull
     CPU --> Pull
@@ -243,15 +243,15 @@ graph TD
 
 Detection is capability-based — "a CUDA device", "a DX12 device", "Apple Silicon" — never a list of named GPUs. The RTX 5060 Ti / RTX 3050 mentioned in `03` are our own dev machines, not a supported-hardware list.
 
-Multiple proxies on one machine share one in-process classifier per proxy; the model is ~25 MB, so duplication is not a concern the way a multi-gigabyte model was.
+Multiple proxies on one machine share one in-process classifier per proxy; the model is ~300 MB, so a handful of proxies per machine is fine where a multi-gigabyte model was not.
 
 ### Configuration
 
 ```python
-from mcp_shield import SecurityConfig, ClassifierModel, ExplainerProvider
+from mcp_shield import SecurityConfig, ExplainerProvider
 
 config = SecurityConfig(
-    classifier_model=ClassifierModel.SMALL,      # default; ClassifierModel.BASE opts into the 86M model (Stage 2)
+    classifier_model="mcp-shield-clf",           # the single 86M classifier; version pinned via the model card
     taint_policy="standard",                     # or "strict": every execute/egress call in a tainted session needs approval
     fpr_target=0.005,                            # selects the shipped operating threshold
     explainer=ExplainerProvider.NONE,            # Stage 2: OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC (own key, opt-in)
@@ -267,8 +267,7 @@ graph TD
     Config["SecurityConfig"] --> T3["Tier 3 classifier (hot path, always local)"]
     Config --> T4["Tier 4 explainer (Stage 2, off hot path, optional)"]
 
-    T3 --> C1["mcp-shield-clf-small — 22M, default"]
-    T3 --> C2["mcp-shield-clf-base — 86M, opt-in"]
+    T3 --> C1["mcp-shield-clf — 86M mDeBERTa-v3-base lineage, the only Stage 1 model"]
 
     T4 --> E0["None (default)"]
     T4 --> E1["Ollama — Qwen3-8B / Llama-3.1-8B, consent-gated"]
@@ -347,7 +346,7 @@ max_privilege   = "write"
 |:--|:--|:--|:--|:--|
 |**Python package (`mcp-shield-llm`)**|PyPI|$0|1|`pip install`, ~2 MB wheel|
 |**`mcp-shield proxy`**|User's machine|$0|1|Streamable HTTP reverse proxy or stdio wrapper|
-|**Classifier weights (`clf-small` / `clf-base`)**|Hugging Face Hub|$0|1 / 2|Downloaded once to the `platformdirs` cache, SHA-256 verified|
+|**Classifier weights (`mcp-shield-clf`)**|Hugging Face Hub|$0|1|Downloaded once to the `platformdirs` cache, SHA-256 verified|
 |**Hot-path runtime**|ONNX Runtime|$0|1|CPU int8 everywhere; CUDA / DirectML / CoreML if present|
 |**Dashboard**|Embedded FastAPI|$0|1 (log + inspector) / 2 (full)|`127.0.0.1:8501`, token on every endpoint|
 |**Tier 4 explainer**|Ollama (local) or cloud API|$0 local / user's key|2|Off the hot path, opt-in|

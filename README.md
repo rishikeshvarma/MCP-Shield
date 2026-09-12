@@ -6,7 +6,7 @@
 
 _An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety & Real-Time Indirect Prompt Injection Defense_
 
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org/) [![PyPI Version](https://img.shields.io/badge/pypi-mcp--shield--llm-green.svg)](https://pypi.org/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![Latency SLA](https://img.shields.io/badge/Latency-Target%20%3C50ms%20\(pending%20benchmark\)-yellow.svg)](#-benchmarks) [![Base Paper](https://img.shields.io/badge/Base%20Paper-arXiv%3A2601.17549-red.svg)](https://arxiv.org/abs/2601.17549) [![MCP Spec](https://img.shields.io/badge/MCP%20spec-2026--07--28-purple.svg)](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
+[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org/) [![PyPI Version](https://img.shields.io/badge/pypi-mcp--shield--llm-green.svg)](https://pypi.org/) [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE.md) [![Latency SLA](https://img.shields.io/badge/Latency-Target%20%3C50ms%20GPU%20%2F%20%3C250ms%20CPU-yellow.svg)](#-benchmarks) [![Base Paper](https://img.shields.io/badge/Base%20Paper-arXiv%3A2601.17549-red.svg)](https://arxiv.org/abs/2601.17549) [![MCP Spec](https://img.shields.io/badge/MCP%20spec-2026--07--28-purple.svg)](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
 
 [Features](#-key-features) • [Architecture](#-hot-path-cascade) • [Quickstart](#-quickstart) • [Dashboard](#-localhost-admin-dashboard) • [Benchmarks](#-benchmarks) • [Roadmap](#-roadmap) • [Citation](#-base-paper--academic-citation)
 
@@ -42,7 +42,7 @@ Spec revision **`2026-07-28`** made MCP stateless: protocol-level sessions and t
 ## 🔥 Key Features
 
 - 🔀 **Local proxy, both directions**: `mcp-shield proxy` for Streamable HTTP upstreams or wrapped stdio servers — no changes to your host or your servers.
-- 🚀 **Sub-50 ms hot-path cascade (target)**: structural policy gate (<1 ms) → cache & signature layer (1–5 ms) → fine-tuned **22M-parameter encoder classifier** (≤40 ms per ≤512-token segment on CPU). Numbers are targets pending our benchmark — see [Benchmarks](#-benchmarks).
+- 🚀 **Hot-path cascade under 50 ms on a GPU, under a quarter-second on CPU (targets)**: structural policy gate (<1 ms) → cache & signature layer (1–5 ms) → fine-tuned **86M-parameter encoder classifier** (≤40 ms per ≤512-token segment on GPU, ≤200 ms on CPU). Numbers are targets pending our benchmark — see [Benchmarks](#-benchmarks).
 - 🧠 **Classifier on every untrusted segment**, not just "suspicious-looking" ones: tool results, resources, tool/prompt descriptions, MRTR input requests, free-text arguments. Four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
 - 📌 **Capability pinning + description scan + quarantine**: SHA-256 pins per tool catch rug-pulls; the classifier reads descriptions at `tools/list` time to catch first-contact poisoning; a server with no pin yet starts **quarantined** — dangerous tools withheld, results under strict taint — until you review and accept its manifest.
 - 🧭 **One-command coverage**: `mcp-shield install --host claude-desktop` routes every server in your host's MCP config through the proxy (backup kept, `uninstall` restores).
@@ -50,7 +50,7 @@ Spec revision **`2026-07-28`** made MCP stateless: protocol-level sessions and t
 - 🧬 **Session taint state**: untrusted content is remembered outside the LLM; later `write` / `execute` / `egress` calls whose arguments overlap tainted content are blocked (or, Stage 2, sent to you for approval via MRTR).
 - 🛑 **Argument policy for command injection**: path canonicalisation + root allowlists, shell-metacharacter rejection, URL allowlists — the realistic defence for the 43% of servers Equixly found vulnerable.
 - 🎛️ **Localhost dashboard** with a flagged-request inspector (why, which tier, calibrated probability, one-click exact-hash override) — token-protected on every endpoint, because an unauthenticated localhost dashboard was CVE-2025-49596.
-- 💰 **$0 by default, 100% local**: a ~25 MB ONNX model auto-downloaded from Hugging Face Hub; runs on CPU everywhere, faster with CUDA / DirectML / CoreML if present. Cloud APIs exist only as an opt-in, off-path explainer.
+- 💰 **$0 by default, 100% local**: a ~300 MB ONNX model auto-downloaded from Hugging Face Hub; runs on CPU everywhere, faster with CUDA / DirectML / CoreML if present. Cloud APIs exist only as an opt-in, off-path explainer.
 
 ---
 
@@ -61,14 +61,14 @@ graph TD
     Host["MCP Host (Claude Desktop / Cursor / custom agent)"] <-->|"JSON-RPC 2.0"| Proxy["mcp-shield proxy"]
     Proxy <-->|"JSON-RPC 2.0"| Servers["MCP Servers"]
 
-    subgraph Cascade["Inside the proxy — per message (end-to-end p95 target: <50ms on CPU)"]
+    subgraph Cascade["Inside the proxy — per message (end-to-end p95 target: <50 ms GPU / <250 ms CPU)"]
         Ext["Untrusted-Segment Extractor (no model)"] --> T1["Tier 1: Structural & Policy Gate (<1ms)"]
         T1 -->|"Policy violation"| Deny1["BLOCK: SecurityPolicyError"]
         T1 -->|"No untrusted free text"| Pass["ALLOW / Forward"]
         T1 -->|"Untrusted free text"| T2["Tier 2: Cache & Signature Layer (1–5ms)"]
         T2 -->|"Already-cleared content"| Pass
         T2 -->|"Known-bad / DoS guard"| Deny2["BLOCK: SecurityInjectionError"]
-        T2 -->|"New content"| T3["Tier 3: Encoder Injection Classifier (≤20ms GPU / ≤40ms CPU per segment)"]
+        T2 -->|"New content"| T3["Tier 3: Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per segment)"]
         T3 -->|"benign"| Pass
         T3 -->|"injection / command_injection / description_poisoning"| Deny2
     end
@@ -168,10 +168,10 @@ graph LR
 ## 🔧 Configuration
 
 ```python
-from mcp_shield import SecurityConfig, ClassifierModel, ExplainerProvider
+from mcp_shield import SecurityConfig, ExplainerProvider
 
 config = SecurityConfig(
-    classifier_model=ClassifierModel.SMALL,   # default 22M model; ClassifierModel.BASE = 86M (Stage 2)
+    classifier_model="mcp-shield-clf",        # the single 86M classifier; version pinned via the model card
     taint_policy="standard",                  # "strict": every execute/egress call in a tainted session needs approval
     fpr_target=0.005,                         # picks the shipped operating threshold (FPR <= 0.5%)
     explainer=ExplainerProvider.NONE,         # Stage 2: OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC — opt-in, own key, off the hot path
@@ -188,7 +188,7 @@ Stage 1 needs nothing beyond `pip install`: the classifier is a small ONNX model
 |**macOS**|ONNX Runtime, CPU int8|CoreML (Apple Silicon)|same|
 |**Linux**|ONNX Runtime, CPU int8|CUDA|same|
 
-Weights come from Hugging Face Hub's free file hosting (`rishikesh/mcp-shield-clf-small`), cached in the OS-appropriate directory via `platformdirs`, SHA-256 verified. An optional `HF_TOKEN` (free account) raises your download quota on shared networks; we never ship a shared token in the package. Full decision flow in [`07`](07%20-%20Model%20Distribution%2C%20PyPI%20Packaging%20%26%20Local%20Dashboard.md).
+Weights come from Hugging Face Hub's free file hosting (`rishikesh/mcp-shield-clf`), cached in the OS-appropriate directory via `platformdirs`, SHA-256 verified. An optional `HF_TOKEN` (free account) raises your download quota on shared networks; we never ship a shared token in the package. Full decision flow in [`07`](07%20-%20Model%20Distribution%2C%20PyPI%20Packaging%20%26%20Local%20Dashboard.md).
 
 ---
 
@@ -202,8 +202,9 @@ Weights come from Hugging Face Hub's free file hosting (`rishikesh/mcp-shield-cl
 |**ASR on adaptive red-team set**|—|reported, no target|Pending|
 |**False Positive Rate (FPR)** on benign hard negatives|—|< 0.5%|Pending|
 |**Utility retained** (AgentDojo benign task success vs. undefended)|—|≥ 95%|Pending|
-|**End-to-end p95 latency** (CPU-only, ≤512-token segments)|—|< 50 ms|Pending|
-|**Baseline comparison**: Prompt Guard 2-22M / 86M on the same held-out sets|—|reported|Pending|
+|**End-to-end p95 latency** (GPU, ≤512-token segments)|—|< 50 ms|Pending|
+|**End-to-end p95 latency** (CPU-only, ≤512-token segments; standard 4-vCPU CI runner)|—|< 250 ms|Pending|
+|**Baseline comparison**: Prompt Guard 2-86M on the same held-out sets (22M for reference)|—|reported|Pending|
 
 Evaluation rules we hold ourselves to: benchmarks used for evaluation are never used for training or threshold selection; we report leave-one-source-out gaps (Fomin et al., 2026) and an adaptive attack set (Bhagwatkar et al., 2025), because static suites saturate.
 
@@ -217,7 +218,7 @@ For reference only: the base paper's own defence, **ATTESTMCP** — capability a
 |:--|:--|
 |**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (HTTP + stdio) · Tier 1–3 with abstain band · untrusted-segment extractor · pinning + description scan + first-contact quarantine · session taint with overlap check + probe detection · MRTR provenance banner · `mcp-shield doctor` / `install` · benchmark harness with CI CPU baseline · dashboard (traffic log + flagged inspector + pin viewer) · PyPI release|
 |**Stage 1E — Enterprise Basics (this semester, built last)**|JSONL audit log + OTLP export · Dockerfile / docker-compose + Kubernetes sidecar manifest · OAuth 2.1 bearer validation + basic policy map · per-client config — cut first if validation runs late|
-|**Stage 2**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama / opt-in cloud) · MRTR human approval · full dashboard · `clf-base` model|
+|**Stage 2**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama / opt-in cloud) · MRTR human approval · full dashboard|
 |**Future — Enterprise Advanced**|Envoy / service-mesh filter · eBPF interception · SIEM connectors (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID) · gVisor sandboxed execution · dashboard SSO · central policy server|
 
 ---
@@ -227,7 +228,7 @@ For reference only: the base paper's own defence, **ATTESTMCP** — capability a
 - **Pinning is trust-on-first-*review*, not zero-trust.** A new server starts quarantined until you accept its manifest, with the classifier's verdicts shown alongside — but a description whose malice neither you nor the classifier recognise is still accepted. The base paper names the same underlying limit (TOFU) for ATTESTMCP.
 - **Bounded classifiers can be bypassed by adaptive attacks.** Controlled-release prompting (Fairoze et al., 2025) and distribution shift (Fomin et al., 2026) are real; our weights are open, so an attacker can optimise against them offline. We report adaptive-set ASR separately and rely on defence in depth (taint state, pinning, argument policy), not the classifier alone. Online probing is throttled — a streak of blocks escalates the session and then quarantines the source — and an abstain band raises the guard when the classifier is unsure, but offline optimisation against open weights remains possible.
 - **Session taint catches verbatim and near-verbatim smuggling, not fully paraphrased intent.** That is why the classifier runs *before* content reaches the host; the principled fix is host-side control-flow separation (CaMeL), which a proxy cannot impose.
-- **Latency scales with content length.** The sub-50 ms target is per ≤512-token segment; very large tool results are chunked and batched, and their p95 is reported separately.
+- **Latency scales with content length.** The latency targets are per ≤512-token segment; very large tool results are chunked and batched, and their p95 is reported separately.
 - **The proxy protects only the servers routed through it.** `mcp-shield install` routes every server in the host config through the proxy and `doctor` warns about any added later, but a server the host reaches directly is invisible. In stdio mode there are no `Mcp-*` headers, so Tier 1 works from the parsed body alone.
 - **The proxy is itself a local service and is hardened as one.** Following the spec's Security Best Practices, it binds to `127.0.0.1`, validates `Host`, rejects browser `Origin` requests, and never spawns a process from a network or dashboard request — stdio commands come only from the CLI or the config file, confirmed in the terminal.
 - **MRTR replaced Sampling, it did not remove the vector.** Sampling is deprecated in `2026-07-28` (12-month window); server-authored `inputRequests` now carry the same risk and are classified like any other untrusted text.

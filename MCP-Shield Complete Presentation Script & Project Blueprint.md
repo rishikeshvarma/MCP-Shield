@@ -43,11 +43,11 @@ The Model Context Protocol (MCP) has become the standard way to connect Large La
 
 - **Tier 1 — Structural & Policy Gate (<1 ms)**: per-client tool allowlist from the `2026-07-28` spec's `Mcp-Method` / `Mcp-Name` headers, header ↔ body consistency, schema conformance, and an argument policy (path canonicalisation, shell-metacharacter rejection, URL allowlists) against parameter-bound command injection.
 - **Tier 2 — Cache & Signature Layer (1–5 ms)**: fast-accept of already-cleared content, fast-reject of known-bad signatures, and length/repetition guards against context-length denial of service.
-- **Tier 3 — Encoder Injection Classifier (≤20 ms GPU / ≤40 ms CPU per ≤512-token segment)**: a fine-tuned 22M-parameter DeBERTa-v3 classifier applied to *every* untrusted text segment — tool results, resources, tool descriptions, server input requests — with four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
+- **Tier 3 — Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per ≤512-token segment)**: a fine-tuned 86M-parameter mDeBERTa-v3 classifier applied to *every* untrusted text segment — tool results, resources, tool descriptions, server input requests — with four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
 
 Around the cascade, MCP-Shield adds **capability pinning with description scanning** (SHA-256 fingerprints catch rug-pulls; the classifier reads descriptions at listing time to catch first-contact poisoning) and **proxy-held session taint state** (untrusted content is remembered outside the LLM, and later high-privilege calls whose arguments overlap it are blocked or sent for human approval). A small **enterprise basics** set — a structured audit log with OpenTelemetry export, Docker / Kubernetes sidecar deployment, and OAuth 2.1 bearer validation with a basic policy map — is scheduled for the end of this semester, behind the core; a sliding-window state tracker, a `@shield` decorator for server authors, and an off-path explainer model follow in Stage 2.
 
-**Evaluation status**: we have not yet run a full benchmark pass. We will report attack success rate, false-positive rate, utility retention, and latency on held-out suites (AgentDojo [9], MCPSecBench [2]) that are never used for training, with leave-one-source-out gaps [15], an adaptive red-team set [14][16], and Prompt Guard 2 [12][13] as the baseline. Targets: ASR < 10% on static held-out suites, FPR < 0.5%, utility ≥ 95% of undefended, p95 latency < 50 ms on CPU.
+**Evaluation status**: we have not yet run a full benchmark pass. We will report attack success rate, false-positive rate, utility retention, and latency on held-out suites (AgentDojo [9], MCPSecBench [2]) that are never used for training, with leave-one-source-out gaps [15], an adaptive red-team set [14][16], and Prompt Guard 2 [12][13] as the baseline. Targets: ASR < 10% on static held-out suites, FPR < 0.5%, utility ≥ 95% of undefended, p95 latency < 50 ms with a GPU and < 250 ms CPU-only.
 
 ---
 
@@ -149,7 +149,7 @@ graph TD
     P1["THE IDEAL STATE"] -->|Requires| P1_1["Agents and tools cooperate freely under enforced trust boundaries"]
     P2["THE REALITY"] -->|Exposes| P2_1["MCP prioritises integration speed; untrusted text pollutes the host's context"]
     P3["THE IMPACT"] -->|Results in| P3_1["Data exfiltration, unauthorised actions, privilege escalation — with valid credentials"]
-    P4["OUR GOAL"] -->|Delivers| P4_1["MCP-Shield: a local sub-50 ms, three-tier semantic proxy that inspects both directions"]
+    P4["OUR GOAL"] -->|Delivers| P4_1["MCP-Shield: a local three-tier semantic proxy, sub-50 ms on a GPU, inspecting both directions"]
 ```
 
 - **Ideal state**: agents from different vendors share tools and automate workflows while zero-trust boundaries hold automatically.
@@ -171,7 +171,7 @@ graph TD
 
 ```mermaid
 graph LR
-    Obj1["Inline protocol interception (proxy)"] --> Obj2["Sub-50 ms cascade with encoder classifier"]
+    Obj1["Inline protocol interception (proxy)"] --> Obj2["Sub-50 ms (GPU) cascade with encoder classifier"]
     Obj2 --> Obj3["Pinning + description scan"]
     Obj3 --> Obj4["Session taint state"]
     Obj4 --> Obj5["Argument policy vs. command injection"]
@@ -180,7 +180,7 @@ graph LR
 ```
 
 1. **Inline protocol interception**: a local proxy (`mcp-shield proxy`, Streamable HTTP and stdio) that sees every JSON-RPC message in both directions under the `2026-07-28` spec — including `tools/list` results and MRTR input requests — with no change to host or servers.
-2. **Sub-50 ms hot-path cascade**: structural policy gate → cache/signature layer → fine-tuned 22M encoder classifier, with an end-to-end p95 target under 50 ms on a CPU-only laptop, measured and published.
+2. **Sub-50 ms hot-path cascade**: structural policy gate → cache/signature layer → fine-tuned 86M encoder classifier, with an end-to-end p95 target under 50 ms with a GPU and under 250 ms on a CPU-only laptop, measured and published.
 3. **Capability pinning + description scanning**: SHA-256 fingerprints per tool re-checked on `toolsListChanged`; classifier scan of descriptions at listing time; `SecurityTamperingError` on change.
 4. **Session taint state**: remember untrusted content outside the LLM; block or gate later `write` / `execute` / `egress` calls whose arguments overlap it (`SecurityTaintViolationError`).
 5. **Parameter-injection defence**: Tier 1 argument policy — path canonicalisation, root allowlists, shell-metacharacter rejection, URL allowlists — usable in both the proxy and the `@shield` decorator.
@@ -295,7 +295,7 @@ MCP-Shield is a developer-first semantic firewall delivered as a Python package.
 
 ```bash
 pip install mcp-shield-llm
-mcp-shield doctor                                    # detect OS / accelerator, download the 25 MB classifier, self-test
+mcp-shield doctor                                    # detect OS / accelerator, download the ~300 MB classifier, self-test
 mcp-shield proxy --listen 127.0.0.1:8800 --upstream https://tools.example.com/mcp
 mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
 ```
@@ -320,7 +320,7 @@ async def handle_mcp_request(json_rpc_payload: dict):
 |Post-ingestion data-flow abuse|Text scanners ignore flow|Proxy-held taint + argument overlap; MRTR approval (2)|1 / 2|Blocks smuggling; gates high-privilege calls|
 |Context-length DoS|Nothing measures size upstream|Tier 2 length / repetition guards|1|Blocks before host|
 |Header / body desync|Header-only filters|Tier 1 consistency check (`HeaderMismatchError`)|1|Blocks|
-|Cloud latency & cost|Every check is a round trip|Local int8 encoder|1|$0, < 50 ms target|
+|Cloud latency & cost|Every check is a round trip|Local 86M encoder (ONNX)|1|$0, < 50 ms GPU / < 250 ms CPU target|
 |Privilege misuse by hijacked agent|IAM checks the token only|OAuth-claim scoping / RBAC|Future|Design only|
 
 ### 7.3 Architecture flow
@@ -330,14 +330,14 @@ graph TD
     Host["MCP Host"] <-->|"JSON-RPC 2.0"| Proxy["mcp-shield proxy"]
     Proxy <-->|"JSON-RPC 2.0"| Servers["MCP Servers"]
 
-    subgraph Cascade["Inside the proxy — per message (end-to-end p95 target: <50 ms on CPU)"]
+    subgraph Cascade["Inside the proxy — per message (end-to-end p95 target: <50 ms GPU / <250 ms CPU)"]
         Ext["Untrusted-Segment Extractor (no model)"] --> T1["Tier 1: Structural & Policy Gate (<1 ms)"]
         T1 -->|"Policy violation"| Deny1["BLOCK: SecurityPolicyError"]
         T1 -->|"No untrusted free text"| Pass["ALLOW / Forward"]
         T1 -->|"Untrusted free text"| T2["Tier 2: Cache & Signature Layer (1–5 ms)"]
         T2 -->|"Already cleared"| Pass
         T2 -->|"Known-bad / DoS guard"| Deny2["BLOCK: SecurityInjectionError"]
-        T2 -->|"New content"| T3["Tier 3: Encoder Injection Classifier (≤20 ms GPU / ≤40 ms CPU per segment)"]
+        T2 -->|"New content"| T3["Tier 3: Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per segment)"]
         T3 -->|"benign"| Pass
         T3 -->|"attack class"| Deny2
     end
@@ -357,9 +357,9 @@ _(PNG export of the Mermaid diagram above, regenerated 12 September 2026. The Me
 
 - **Tier 1 — Structural & Policy Gate (<1 ms)**: rules, no AI. Is this tool allowed for this client (`Mcp-Method` / `Mcp-Name`)? Do the headers match the body? Do the arguments match the pinned schema? Do paths stay inside their allowed root, and are shell operators (`;`, `|`, `&&`, backticks, `$(`) absent from path/command fields? (Every string argument is scanned; a hit outside a typed field forces `strict` policy instead of a block.)
 - **Tier 2 — Cache & Signature Layer (1–5 ms)**: have we cleared this exact content before (scoped to server + tool, and to the spec's `ttlMs` for list results)? Does it match a known attack signature? Is it absurdly long or repetitive? Tier 2 is a cache and a tripwire — it never declares *new* text safe.
-- **Tier 3 — Encoder Injection Classifier**: a fine-tuned DeBERTa-v3-xsmall (22M parameters, int8 ONNX) reads every untrusted text segment — tool results, resource contents, tool and prompt descriptions, MRTR input requests, free-text arguments — and returns calibrated probabilities over `benign` / `indirect_injection` / `command_injection` / `description_poisoning`. Target: ≤20 ms on GPU, ≤40 ms on CPU per ≤512-token segment. Longer content is chunked and batched. Scores just below the block threshold fall into an abstain band: the content passes, but the session is escalated to `strict` and the item is queued for review.
+- **Tier 3 — Encoder Injection Classifier**: a fine-tuned mDeBERTa-v3-base (~86M backbone, ONNX) reads every untrusted text segment — tool results, resource contents, tool and prompt descriptions, MRTR input requests, free-text arguments — and returns calibrated probabilities over `benign` / `indirect_injection` / `command_injection` / `description_poisoning`. Target: ≤40 ms on GPU, ≤200 ms on CPU per ≤512-token segment — a small fraction of a 500–2000 ms agent turn. Longer content is chunked and batched. Scores just below the block threshold fall into an abstain band: the content passes, but the session is escalated to `strict` and the item is queued for review.
 
-**Why not a 7B language model?** Our first design did exactly that and claimed 30–40 ms. Meta's own numbers for a *22M* encoder are 19.3 ms per 512 tokens on an A100 [13]; an independent 2026 study measured a local review LLM at 2.51 s per call and found it changed no outcomes [5]. Small encoders are what fits the budget — and they run on CPU, so no user is left unprotected for lack of a GPU. A generative model survives only as an optional, off-path explainer (Stage 2).
+**Why not a 7B language model?** Our first design did exactly that and claimed 30–40 ms. Meta's own number for this *86M* encoder lineage is 92.4 ms per 512 tokens on an A100 in unoptimised PyTorch [13]; an independent 2026 study measured a local review LLM at 2.51 s per call and found it changed no outcomes [5]. Encoders are what fit the budget — and they run on CPU (slower, but still under a quarter-second), so no user is left unprotected for lack of a GPU. A generative model survives only as an optional, off-path explainer (Stage 2).
 
 ### 7.5 The core technical pillars
 
@@ -399,7 +399,7 @@ E1 audit log + OTLP export with the spec's trace context; E2 Dockerfile / docker
 |**Protocol awareness**|None|Descriptions only|None|Every message type, both directions, `2026-07-28` headers, MRTR|
 |**Data scope**|Ingress|Descriptions|What the app passes|Descriptions, results, resources, MRTR, arguments|
 |**State**|None|Point-in-time|None|Session taint + pin store (+ tracker in Stage 2)|
-|**Latency**|Fast, blind|Not inline|~20–90 ms / 512 tokens|< 50 ms end-to-end target on CPU|
+|**Latency**|Fast, blind|Not inline|~20–90 ms / 512 tokens|< 50 ms GPU / < 250 ms CPU end-to-end target|
 |**Cost**|Infra|Free / API|Free|$0, fully local|
 
 ### 7.7 What MCP-Shield does *not* claim
@@ -438,7 +438,7 @@ _(PNG export of the Mermaid pipeline above, regenerated 12 September 2026 — re
 - Keep AgentDojo, MCPSecBench, and our adaptive red-team set **entirely out** of training and threshold selection.
 
 #### Phase 2 — Classifier fine-tuning & calibration
-- Fine-tune `microsoft/deberta-v3-xsmall` (22M) → `mcp-shield-clf-small`; class-weighted cross-entropy; early stopping on recall at FPR = 0.5%; three seeds.
+- Fine-tune `microsoft/mdeberta-v3-base` (~86M backbone) → `mcp-shield-clf`; class-weighted cross-entropy; early stopping on recall at FPR = 0.5%; three seeds.
 - Temperature-scale on validation; select per-class thresholds for FPR ≤ 0.5%.
 - Export via `optimum` → ONNX → int8; publish on Hugging Face Hub with a model card.
 

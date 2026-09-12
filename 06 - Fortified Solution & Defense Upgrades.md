@@ -15,7 +15,7 @@
 |**5. Data-flow abuse after ingesting untrusted content (exfiltration, command smuggling)**|Guardrails scan text, not the *flow* from result to later tool call|**Proxy-held session taint state** + argument-overlap check on `write` / `execute` / `egress` calls; Stage 2 human approval via MRTR|1 / 2|**Blocks** verbatim and near-verbatim smuggling; **gates** high-privilege calls in tainted sessions under `strict`|Fully paraphrased intent — the reason Tier 3 runs *before* content reaches the host; principled fix is host rewriting (CaMeL)|
 |**6. Context-length DoS ("denial of wallet")**|Nothing upstream of the host measures size or redundancy|**Tier 2 DoS guard**: length caps, repetition- and compression-ratio checks|1|**Blocks** padding and recursive-text payloads before the classifier and the host|Legitimately large results need a per-tool cap override|
 |**7. Header / body desync**|Header-only filters trust `Mcp-Name`|**Tier 1 consistency check** mirroring `HeaderMismatchError` (`-32020`)|1|**Blocks** deterministically|None known|
-|**8. Cloud-guardrail latency and cost**|Every check is a cloud round trip: hundreds of ms to seconds, per-token billing|**Local small encoder** (int8 ONNX, CPU-capable) — end-to-end p95 target < 50 ms, $0|1|**Removes** the cloud dependency on the hot path|Latency scales with content length for very large results (reported separately)|
+|**8. Cloud-guardrail latency and cost**|Every check is a cloud round trip: hundreds of ms to seconds, per-token billing|**Local 86M encoder** (ONNX, CPU-capable) — end-to-end p95 target < 50 ms with a GPU, < 250 ms CPU-only, $0|1|**Removes** the cloud dependency on the hot path|Latency scales with content length for very large results (reported separately)|
 |**9. Credential / privilege misuse by a hijacked agent**|IAM validates the token, not what the agent was tricked into doing|**Stage 1E basic policy map**: OAuth 2.1 bearer validated at the proxy (JWKS, `iss`/`aud`/`exp`); subject or role → allowed servers, tools and maximum privilege class, enforced before every call|1E|**Limits** what a hijacked agent can call to what its human is allowed to call|Fine-grained RBAC, IAM sync and a central policy server are Future; a hijacked agent can still misuse tools its human *is* allowed to call|
 
 ---
@@ -30,7 +30,7 @@ graph TD
     subgraph Stage1["Stage 1 (MVP)"]
         F1["Tier 1: Structural & Policy Gate (<1ms)"]
         F2["Tier 2: Cache & Signature Layer (1–5ms)"]
-        F3["Tier 3: Encoder Injection Classifier (≤40ms CPU / segment)"]
+        F3["Tier 3: Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per segment)"]
         F4["Capability Pinning + Description Scan"]
         F5["Session Taint State + Argument-Overlap Check"]
     end
@@ -61,8 +61,8 @@ graph TD
 
 ### 1. Tier 3 Encoder Injection Classifier (Stage 1)
 
-- **What**: a fine-tuned DeBERTa-v3-xsmall (22M) classifier, int8 ONNX, run on every untrusted free-text segment — tool results, resource contents, tool and prompt descriptions, MRTR `inputRequests`, free-text call arguments. Four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
-- **Why an encoder**: it is the only model class that fits the latency budget on CPU (Meta: 19.3 ms per 512 tokens on an A100 for the 22M lineage; CASCADE: a local review LLM cost 2.51 s per call and changed no outcomes).
+- **What**: a fine-tuned mDeBERTa-v3-base (~86M backbone) classifier, ONNX (fp16 on GPU, int8 on CPU), run on every untrusted free-text segment — tool results, resource contents, tool and prompt descriptions, MRTR `inputRequests`, free-text call arguments. Four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
+- **Why an encoder**: it is the only model class that fits the budget (Meta: 92.4 ms per 512 tokens on an A100 in unoptimised PyTorch for this 86M lineage — far below the 500–2000 ms of an agent turn; CASCADE: a local review LLM cost 2.51 s per call and changed no outcomes).
 - **Why "always on" for untrusted text**: a classifier gated behind a similarity score is bypassed by any injection that does not resemble known ones. Source trust, not anomaly score, decides what gets classified.
 - **Enforcement**: `SecurityInjectionError` with class and calibrated probability.
 
