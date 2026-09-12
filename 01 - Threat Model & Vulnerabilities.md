@@ -13,7 +13,7 @@ The adversary:
 
 - controls or compromises **one MCP server** in a multi-server deployment, **or**
 - can inject content into data sources a legitimate server retrieves (web pages, documents, issues, emails), and
-- has **black-box** access — cannot modify the host application or LLM weights.
+- has **black-box** access to the host application and its LLM, but **white-box** access to MCP-Shield itself — its code and classifier weights are public.
 
 Goals: hijack the host's behaviour, exfiltrate sensitive context, persist across sessions. We add one capability the base paper did not need: the adversary may send **inconsistent `Mcp-Method` / `Mcp-Name` headers and bodies** to any intermediary that trusts headers alone (the spec's `HeaderMismatchError` exists for this reason).
 
@@ -47,7 +47,7 @@ ATTESTMCP (the paper's fix) addresses (1) and the authentication half of (2)/(3)
 
 ### 2. Indirect Injection via Results and MRTR
 * **Mechanism**: a legitimate server returns text (issue body, web page, PDF, database row) that contains instructions; or a server returns `resultType: "input_required"` with `inputRequests` that phrase a prompt to the user or host.
-* **Why this matters more after `2026-07-28`**: MRTR is now the *only* spec-native way for a server to put text in front of the client outside a tool result, so it inherits the deprecated Sampling vector's threat profile.
+* **Why this matters more after `2026-07-28`**: MRTR is now the *only* spec-native way for a server to put text in front of the client outside a tool result, so it inherits the deprecated Sampling vector's threat profile. During the twelve-month deprecation window, servers still on `2025-11-25` continue to send `sampling/createMessage` and `elicitation/create` requests; those are classified identically.
 * **MCP-Shield**: every result and every `inputRequest` is classified before it reaches the host; results are recorded in session taint state.
 
 ### 3. Multi-Turn State Drift (Split Injections)

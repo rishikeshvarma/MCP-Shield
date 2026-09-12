@@ -13,6 +13,7 @@
 - **Why not Prompt Guard 2 weights directly**: they ship under the Llama community licence; MCP-Shield is Apache-2.0. Prompt Guard 2 is used as a **baseline in evaluation**, which is the more useful role anyway.
 - **Why not a 7B generative model**: it does not fit the latency budget (see `02` §0) and, per CASCADE (Turgut & Gümüş, 2026), a local review LLM added 2.51 s per call and changed no outcomes. A generative model remains useful as an *off-path explainer* (§10).
 - **Runtime**: export with `optimum` → ONNX → dynamic int8 quantisation; served by ONNX Runtime on CPU by default, with CUDA / DirectML / CoreML execution providers used automatically when present (`07` §6).
+- **Quantisation gate**: int8 is accepted only if it costs ≤ 0.5 points of recall at the operating FPR versus fp32 on validation; otherwise CPU ships fp16/fp32 and accepts the latency. CoreML acceleration is used where its op coverage allows, else CPU.
 - **Why one 86M model rather than a 22M one**: accuracy and multilingual coverage. The price is ~4× the CPU latency of the 22M variant — still a small fraction of a 500–2000 ms agent turn. Fallback order if Phase 5 says CPU latency is unacceptable: shorter chunks (256 tokens) → ONNX graph optimisation → only then a smaller backbone.
 - **Training hardware**: an 86M encoder fine-tunes in under an hour on the RTX 5060 Ti and in a few hours on the RTX 3050 (4 GB: batch 8 with gradient accumulation, fp16). CPU-only training is possible but slow (hours to a day) and not the plan. No QLoRA, no gradient-checkpointing gymnastics — that complexity belonged to the abandoned 7B plan.
 
@@ -72,7 +73,7 @@ One JSON object per line (`.jsonl`), directly loadable by 🤗 `datasets`:
 ├── A. Public attack corpora                      ├── AgentDojo (Debenedetti et al., 2024)
 │     InjecAgent, MCP-AttackBench (MCP-Guard,     ├── MCPSecBench (Yang, Wu & Chen, 2025)
 │     if released), HackAPrompt-style corpora     ├── Prompt Guard 2 comparison on the same sets
-├── B. Synthetic generation                       ├── Adaptive red-team set (ours, §9.3)
+├── B. Synthetic generation                       ├── Adaptive red-team set (ours, §9.4)
 │     current frontier models via structured      └── Benign traffic replay (ours, FPR)
 │     output; all 4 classes; MCP-shaped
 ├── C. Benign tool traffic
@@ -84,6 +85,9 @@ One JSON object per line (`.jsonl`), directly loadable by 🤗 `datasets`:
       security docs, shell commands in code-review
       tool outputs, text containing "ignore",
       "system prompt", "instructions" used innocently
+      benign IMPERATIVE tool descriptions ("Always call
+      list first", "Use this tool when...") and host-
+      authored arguments that read like instructions
 ```
 
 Sources are combined in whatever proportion is needed to reach the **class mix in §6, which is the binding constraint** (roughly: C supplies most of the benign share, B supplies attacks plus their benign twins and most hard negatives, A supplies the remaining attacks). MCP-Bench (Wang et al., 2025) is a *capability* benchmark with no security focus — it is used only as a source of realistic benign tool traffic, never as security evidence.
@@ -157,8 +161,9 @@ Full fine-tune (no adapters needed at this size), 🤗 `transformers` `Trainer`:
 1. **Temperature scaling** on the validation split so that a reported probability of 0.9 means roughly 90% of such segments are attacks. The dashboard shows this number; it has to mean something.
 2. **Block threshold** on the `benign` probability chosen on validation **hard negatives** for **FPR ≤ 0.5%**; attack recall at that threshold is the headline detection number.
 3. **Abstain band**: a second, lower threshold set at FPR ≈ 2% on the same hard negatives. Segments between the two thresholds are forwarded under `strict` policy and queued for review (`02` §2). Both thresholds ship with the model.
-4. **Per-class thresholds** may differ: `description_poisoning` runs at list time where a false positive costs little (a tool is hidden until the developer looks), so it can run at a lower threshold than `indirect_injection` on the hot path.
-5. Thresholds are shipped with the model and re-derived on every retrain; the dashboard's "Report false positive" queue (`07` §3) feeds the next training round's hard negatives.
+4. **Document-level calibration**: a document is flagged if any chunk is, so per-chunk error compounds with length (0.5% per chunk is ~22% over 50 chunks). Thresholds are therefore set on the **max-pooled chunk score against a length-adjusted threshold**, validated on long benign documents, and the reported FPR is per document.
+5. **Per-class thresholds** may differ: `description_poisoning` runs at list time where a false positive costs little (a tool is hidden until the developer looks), so it can run at a lower threshold than `indirect_injection` on the hot path.
+6. Thresholds are shipped with the model and re-derived on every retrain; the dashboard's "Report false positive" queue (`07` §3) feeds the next training round's hard negatives.
 
 ---
 
@@ -169,7 +174,7 @@ Full fine-tune (no adapters needed at this size), 🤗 `transformers` `Trainer`:
 |Metric|Definition|Target|
 |:--|:--|:--|
 |**ASR** (attack success rate)|Fraction of held-out attack scenarios where the injected action is executed with MCP-Shield in the loop|**< 10%** on static held-out suites; adaptive-set ASR reported separately without a target|
-|**FPR**|Fraction of benign held-out segments blocked|**< 0.5%**|
+|**FPR**|Fraction of benign held-out *documents* blocked (per-document, including long documents)|**< 0.5%**|
 |**Recall @ FPR 0.5%**|Attack segments flagged at the deployed threshold|reported|
 |**Utility retained**|Task success on AgentDojo benign tasks with vs. without MCP-Shield|**≥ 95%** of undefended|
 |**Latency**|p50 / p95 per ≤512-token segment and end-to-end, CPU-only and GPU; the CPU-only number is taken on a standard 4-vCPU GitHub Actions runner so anyone can reproduce it, with our laptops reported alongside|**p95 < 50 ms with a GPU; < 250 ms CPU-only**|
@@ -177,11 +182,15 @@ Full fine-tune (no adapters needed at this size), 🤗 `transformers` `Trainer`:
 
 Problem-scale reference: 52.8% ASR for unprotected MCP and 12.4% under ATTESTMCP, both from the base paper — quoted as context, never as MCP-Shield results.
 
-### 9.2 Leave-one-source-out (LOSO)
+### 9.2 The agent under attack
+
+ASR depends heavily on which host model is being attacked. The primary agent is an **open-weight local model** (Qwen3-8B / 14B via Ollama on the RTX 5060 Ti) so every run is free and reproducible; one frontier-model run is added if budget allows, capped in advance; both are reported with the model named.
+
+### 9.3 Leave-one-source-out (LOSO)
 
 In addition to the held-out benchmarks, train with each `source` removed in turn and evaluate on it. The gap between pooled and LOSO numbers is reported; if it is large, the model is memorising sources.
 
-### 9.3 Adaptive red-team set
+### 9.4 Adaptive red-team set
 
 Static benchmarks saturate (Bhagwatkar et al., 2025). We add a small adaptive set: attacks written *against* the trained classifier by team members and by a frontier model with access to the classifier's scores, including controlled-release-style attacks (Fairoze et al., 2025) that no bounded filter can fully stop. This set's ASR is reported as-is; it is expected to be worse than the static numbers and that is the honest picture.
 
@@ -197,6 +206,13 @@ For the dashboard's "why was this blocked?" panel — **not** on the hot path, n
 
 ---
 
-## 11. Retraining Loop
+## 11. Licences, Terms and Ethics
+
+- **Licences**: every source is recorded with its licence in the dataset card at ingestion (xLAM, for example, is CC-BY-4.0 with a research-use note and is used with attribution); anything whose licence does not permit redistribution stays out of released artefacts.
+- **Generator terms**: synthetic data is generated with an **open-weight model (Qwen3, Apache-2.0)** by default; if a commercial API is used, its terms on training with outputs are checked first.
+- **Release policy**: the adaptive red-team set is a working exploit corpus and is released to researchers on request, not publicly.
+- **Privacy**: benign traffic is captured from sandbox accounts, never from teammates' real usage; no testing is run against third-party servers the team does not own; a real server vulnerability found on the way is disclosed responsibly.
+
+## 12. Retraining Loop
 
 Dashboard false-positive reports → reviewed → added as hard negatives; confirmed blocks → added as attacks. Held-out benchmarks are never touched by this loop. Every retrain re-runs §8 and §9 and publishes a model card with the numbers, the seeds, and the LOSO gap.

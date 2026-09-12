@@ -407,7 +407,9 @@ E1 audit log + OTLP export with the spec's trace context; E2 Dockerfile / docker
 - It is not "bulletproof". Every mechanism has a stated residual risk ([[06 - Fortified Solution & Defense Upgrades]]).
 - Bounded classifiers can be bypassed by adaptive attacks [16]; our weights are open. We report adaptive-set ASR and rely on defence in depth.
 - Taint state catches verbatim and near-verbatim smuggling, not fully paraphrased intent; the principled fix is host-side control-flow separation (CaMeL [10]), which a proxy cannot impose.
-- Pinning is trust-on-first-review: quarantine puts a human in front of every new server, but cannot make that human infallible.
+- Pinning is trust-on-first-review: quarantine puts a human in front of every new server, but cannot make that human infallible; legitimate server updates also trip the pin and need a guided re-pin.
+- Third-party OAuth-protected remote servers cannot be proxied transparently in Stage 1 — the spec binds tokens to the URL the host connects to; stdio servers, non-OAuth HTTP servers and servers you operate are covered, the OAuth proxy-server pattern is Stage 2.
+- Sessions are per host application, not per conversation; images and other binary content are not inspected.
 - Fine-grained RBAC, IAM sync, service-mesh / eBPF integration and gVisor are designs, not deliverables; the Stage 1E enterprise basics (audit + OTLP, container / sidecar, OAuth validation + policy map) are scheduled last and cut first if validation runs late.
 
 ---
@@ -443,7 +445,7 @@ _(PNG export of the Mermaid pipeline above, regenerated 12 September 2026 — re
 - Export via `optimum` → ONNX → int8; publish on Hugging Face Hub with a model card.
 
 #### Phase 3 — Proxy & cascade
-- Build `mcp-shield proxy` for Streamable HTTP (ASGI) and stdio; implement the untrusted-segment extractor, Tier 1 (headers, header ↔ body consistency, schema, argument policy), Tier 2 (cleared-content cache scoped by `ttlMs` / `cacheScope`, signatures, DoS guard), and Tier 3 (ONNX classifier with chunking/batching).
+- Build `mcp-shield proxy` for Streamable HTTP (ASGI) and stdio; implement the untrusted-segment extractor, Tier 1 (headers, header ↔ body consistency, schema, argument policy), Tier 2 (cleared-content cache scoped by `ttlMs` / `cacheScope`, signatures, DoS guard), and Tier 3 (ONNX classifier with chunking/batching). Handle both protocol revisions during the deprecation window (`initialize` / `Mcp-Session-Id` pass-through, body-only Tier 1 when `Mcp-*` headers are absent, legacy sampling / elicitation requests classified like MRTR). Inference runs in a worker thread so the event loop never stalls; fail-closed when the model is unavailable.
 - Implement `mcp-shield doctor` (execution-provider selection, download, self-test) and `mcp-shield install` (route every server in the host config through the proxy).
 
 #### Phase 4 — Pinning, description scan & session taint

@@ -58,7 +58,7 @@
 - Reports 19.3 ms (22M) and 92.4 ms (86M) per 512-token classification on an A100 — the latency reference behind the Tier 3 targets in `02`.
 
 **[14] Bhagwatkar, R., Kasa, K., Puri, A., Huang, G., Rish, I., Taylor, G. W., Dvijotham, K. D. & Lacoste, A.** "Indirect Prompt Injections: Are Firewalls All You Need, or Stronger Benchmarks?" arXiv:2510.05244, 2025 (rev. 2026).
-- Simple input/output filters at the agent–tool boundary reach near-perfect security on the four public benchmarks — because the benchmarks are weak. Supports the firewall placement; mandates the adaptive red-team set in `03` §9.3.
+- Simple input/output filters at the agent–tool boundary reach near-perfect security on the four public benchmarks — because the benchmarks are weak. Supports the firewall placement; mandates the adaptive red-team set in `03` §9.4.
 
 **[15] Fomin, M. et al.** "When Benchmarks Lie: Evaluating Malicious Prompt Classifiers Under True Distribution Shift." arXiv:2602.14161, February 2026.
 - Pooled cross-validation over-reports AUC by 8.0–16.5 points versus leave-one-dataset-out. Basis for the LOSO protocol and the strict train/held-out separation in `03`.

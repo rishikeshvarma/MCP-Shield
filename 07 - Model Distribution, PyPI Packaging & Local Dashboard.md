@@ -120,8 +120,9 @@ graph TD
 
 1. **Live traffic & latency stream (Stage 1)**: WebSocket feed of JSON-RPC transactions with Tier 1 / 2 / 3 timings — the raw data behind the benchmark table in the README.
 2. **Flagged-request inspector (Stage 1)**: every blocked or quarantined item with the full message, the tier that caught it, the class, the calibrated probability, and (Stage 2) the Tier 4 explanation. Two one-click actions:
+    Raw segments are kept **locally only**, redacted for known secret patterns (keys, tokens, card numbers) and retention-limited (default 7 days), because tool outputs contain the user's own secrets and PII.
     - **Allow this exact content** — adds the segment's SHA-256, scoped to that server and tool and with a TTL, to the Tier 2 fast-accept cache. Overrides are *never* similarity neighbourhoods: an attacker who gets one injection past a tired developer must not thereby whitelist everything that looks like it.
-    - **Report false positive** — sends the segment to the local dataset-review queue for the next training round's hard negatives (`03` §11).
+    - **Report false positive** — sends the segment to the local dataset-review queue for the next training round's hard negatives (`03` §12).
     This inspector is the main lever against false-positive fatigue: a developer who can see *why* something was flagged and fix it in one click is far less likely to switch the tool off.
 3. **Capability pin viewer (Stage 1)**: per-server pin table with diffs when a listing changes; re-pin requires an explicit confirmation.
 4. **Verdict analytics (Stage 2)**: counts by class and tier, allowed vs. blocked, per server.
@@ -134,7 +135,8 @@ graph TD
 # Detect OS, accelerators, cache dir; show which tiers and which execution provider will run
 mcp-shield doctor
 
-# Route every server in the host's MCP config through the proxy (backup kept; `mcp-shield uninstall` restores)
+# Route every stdio and non-OAuth HTTP server in the host's MCP config through the proxy (backup kept; `mcp-shield uninstall` restores).
+# OAuth-protected remote servers are reported, not rewritten — see 02 §1
 mcp-shield install --host claude-desktop
 mcp-shield install --host cursor
 
@@ -191,7 +193,7 @@ graph LR
 └── 4. PLAYGROUND ─────────> send a test message, watch each tier decide
 ```
 
-Per-tool policies: privilege class (config can only raise the class above the name heuristic and the server's annotations — see `02` §2, Tier 1), argument root allowlist, `requires_approval` (Stage 2 MRTR flow), a per-tool result-size cap for the DoS guard, and a taint opt-out for servers the developer explicitly trusts (logged, visible in the map). Registering a **stdio** server here writes the command to `mcp-shield.toml`; it is launched only after terminal confirmation, never from the web request itself.
+Per-tool policies: privilege class (config can only raise the class above the name heuristic and the server's annotations — see `02` §2, Tier 1), argument root allowlist, `requires_approval` (Stage 2 MRTR flow), a per-tool result-size cap for the DoS guard, and a taint opt-out for servers the developer explicitly trusts (logged, visible in the map). Registering a **stdio** server here writes the command to `mcp-shield.toml`; it is launched only after terminal confirmation, never from the web request itself. A `mode = "shell"` setting marks tools that legitimately use shell operators: the operator block is off for them and every call runs under `strict` policy instead.
 
 ---
 
@@ -238,7 +240,7 @@ graph TD
 |OS|Event loop|Hot-path runtime (Stage 1)|Acceleration if present|Explainer (Stage 2, optional)|
 |:--|:--|:--|:--|:--|
 |**Windows**|`winloop` (`uvloop` does not run on Windows)|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|Ollama (consent-gated install) or opt-in cloud|
-|**macOS**|`uvloop`|ONNX Runtime, CPU int8|CoreML (Apple Silicon)|same|
+|**macOS**|`uvloop`|ONNX Runtime, CPU int8|CoreML where op coverage allows, else CPU|same|
 |**Linux**|`uvloop`|ONNX Runtime, CPU int8|CUDA|same|
 
 Detection is capability-based — "a CUDA device", "a DX12 device", "Apple Silicon" — never a list of named GPUs. The RTX 5060 Ti / RTX 3050 mentioned in `03` are our own dev machines, not a supported-hardware list.
@@ -303,7 +305,7 @@ graph TD
 
 ### Stage 1E — Enterprise Basics (this semester, built last)
 
-1. **E1 — Audit log + OTLP export.** Every decision (tier, class, probability, session, server, tool, verdict) is written as one JSON line to a local audit file and, when enabled, exported through the OpenTelemetry SDK as logs and spans. The spec's `_meta` trace-context keys (`traceparent`, `tracestate`, `baggage`) are propagated, so a blocked call appears in the same trace as the agent that made it. Any OTLP-compatible collector (Grafana, Jaeger, the Datadog agent, the Splunk OTel collector) receives it — no vendor connector needed.
+1. **E1 — Audit log + OTLP export.** Every decision (tier, class, probability, session, server, tool, verdict) is written as one JSON line to a local audit file and, when enabled, exported through the OpenTelemetry SDK as logs and spans. The spec's `_meta` trace-context keys (`traceparent`, `tracestate`, `baggage`) are propagated, so a blocked call appears in the same trace as the agent that made it. Any OTLP-compatible collector (Grafana, Jaeger, the Datadog agent, the Splunk OTel collector) receives it — no vendor connector needed. Exported records carry **hashes, verdicts, tiers and classes — never raw segments** unless raw export is explicitly enabled; shipping raw tool output to a shared collector would be internal data exfiltration.
 2. **E2 — Container deployment.** A `Dockerfile` and `docker-compose.yml` run the proxy as a container; a plain Kubernetes manifest runs it as a **sidecar** in the agent's pod (shared pod network, the host points at `localhost:8800`). No Envoy filter, no CRDs — the sidecar is just the proxy in a container next to the agent.
 3. **E3 — OAuth 2.1 bearer validation + basic policy map.** In HTTP mode the proxy validates the `Authorization` bearer token the host presents (signature via JWKS, `iss`, `aud`, `exp`) and maps the token's subject or role claim to a policy in `mcp-shield.toml`: allowed servers, allowed tools, and the maximum privilege class that principal may invoke. This is *basic* privilege scoping — a hijacked agent can call nothing its human could not — and the same subject is the session key for taint state.
 4. **E4 — Per-client configuration.** `[clients.<name>]` sections carry allowlists, taint policy and result-size caps per client; `[policies.<role>]` sections carry E3's maps.

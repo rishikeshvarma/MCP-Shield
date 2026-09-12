@@ -1,7 +1,7 @@
 # Review-2 — Presentation Content
 
 > **Purpose**: slide-by-slide content for the Review-2 deck, in the seven components the department asked for. Every claim is taken from the canonical docs ([[02 - System Architecture & Technical Implementation]] for architecture, [[05 - Literature Survey & Research Papers]] for citations, [[00 - Master Architecture & Overview]] §5 for scope and calendar). Bracketed numbers like [5] are bibliography entries in `05`.
-> **How to use**: one `###` heading = one slide. "On the slide" is what goes on it; "Speaker notes" is what you say. Tables can be pasted as-is or turned into SmartArt. Diagrams: the Mermaid blocks render in Obsidian — screenshot them, or use the two PNGs in the vault root.
+> **How to use**: one `###` heading = one slide. "On the slide" is what goes on it; "Speaker notes" is what you say. Tables can be pasted as-is or turned into SmartArt. Diagrams: the Mermaid blocks render in Obsidian — screenshot them, or use the PNGs in the vault root (the cascade diagram plus the four `Review-2 - Fig N` exports).
 > **Since Review-1** lines flag what changed from the material the panel already saw.
 
 ---
@@ -33,6 +33,20 @@
 | Bibliography | 13 entries, 5 unverifiable or mis-cited | **26 verified entries** |
 
 **Speaker notes**: A design review between the two reviews found contradictions a security reviewer would catch: the decorator could not see other servers, the 7B model could not meet its own latency claim, and most traffic never reached the semantic classifier. Every one of those is now fixed in the design, and the rest of this deck is built on the corrected version.
+
+### Slide 0.3 — Design audit trail (optional, recommended)
+
+**On the slide**
+
+| Pass | Findings | Outcome |
+|:--|:--|:--|
+| Design review of the Review-1 vault | 28 (4 critical, 8 high, 10 medium, 6 low) | All fixed; the four critical ones became the architecture decisions on slide 0.2 |
+| Deep dive after the rewrite | 6 | All fixed (e.g. tool annotations treated as untrusted, proxy hardened per the spec's Security Best Practices) |
+| Planning-phase limitations | 13 | Designed out (first-contact quarantine, probe detection, abstain band, `install`, Stage 1E) |
+| Final implementer-level audit | 26 | 22 designed out, 4 stated as permanent limitations |
+| **Total** | **73** | Every item traceable to a document and section |
+
+**Speaker notes**: We treated the design like code: reviewed it, wrote down every finding with a severity, and fixed or explicitly accepted each one. The four we accepted — OAuth-protected third-party servers until Stage 2, sessions per host app, images not inspected, legitimate updates tripping the pin — are on the last slide, in our words, before anyone asks.
 
 ---
 
@@ -170,7 +184,7 @@ _Figure 1: Six-phase pipeline — Phases 1–5 are Stage 1 Core, Phase 6 is Stag
 | End-to-end p95 latency | **< 50 ms GPU · < 250 ms CPU** | Consumer GPU; standard 4-vCPU CI runner |
 | Baseline | reported | Prompt Guard 2-86M on the same sets |
 
-Rules: benchmarks used for evaluation never touch training or threshold selection; leave-one-source-out gap reported; three seeds, mean ± sd.
+Rules: benchmarks used for evaluation never touch training or threshold selection; leave-one-source-out gap reported; three seeds, mean ± sd. FPR is reported per document, not per chunk. Agent under attack: an open-weight local model (Qwen3 via Ollama) as primary, one budget-capped frontier-model run if funds allow.
 
 **Speaker notes**: Fomin et al. showed pooled cross-validation over-reports by 8–16 AUC points and Bhagwatkar et al. showed simple filters saturate the public benchmarks — so we hold out whole suites and add an adaptive set whose numbers will look worse. That is the honest picture, and we would rather present it than a saturated one.
 
@@ -193,7 +207,7 @@ graph LR
 _Figure 2: Deployment: the proxy sits between the host and every MCP server._ · PNG in the vault root — right-click → copy image to paste into the deck.
 - Host → server: `tools/call` arguments, allowlists, header ↔ body consistency
 - Server → host: tool results, resource contents, **tool descriptions**, MRTR input requests, notification text
-- `mcp-shield install --host …` routes every configured server through the proxy in one command
+- `mcp-shield install --host …` routes every stdio and non-OAuth HTTP server through the proxy in one command; third-party OAuth-protected remote servers need the Stage 2 proxy-server pattern (the spec binds tokens to the URL the host connects to)
 - Secondary integration (Stage 2): `@shield` decorator / ASGI middleware for people who write servers
 
 **Since Review-1**: the decorator was the product; it could not see other servers' descriptions or results, which is where the attacks live.
@@ -245,16 +259,16 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 | Module | Responsibility | Stage |
 |:--|:--|:--|
 | `cli.py` | `doctor` · `install` · `proxy` · `dashboard` · `pull-model` · `pin` · `benchmark` | 1 |
-| `proxy/http.py` | ASGI reverse proxy; header allowlist before body parse; `Host`/`Origin` checks; optional bearer token | 1 |
+| `proxy/http.py` | ASGI reverse proxy; header allowlist before body parse; `Host` check + `Origin` allowlist; optional bearer token; `2025-11-25` pass-through (`initialize`, `Mcp-Session-Id`) | 1 |
 | `proxy/stdio.py` | Spawns the wrapped server from CLI/config only; frames JSON-RPC over stdio | 1 |
 | `cascade/extractor.py` | Untrusted-segment extractor: `(context_prefix, text)` pairs from any message | 1 |
 | `cascade/tier1_policy.py` | Header ↔ body, schema vs pinned `inputSchema`, argument policy, privilege classes | 1 |
 | `cascade/tier2_cache.py` | Exact-hash cleared-content cache (`ttlMs`-scoped), signature set, DoS guard | 1 |
-| `cascade/tier3_classifier.py` | ONNX session (CPU/CUDA/DirectML/CoreML), chunking, batching, block + abstain thresholds | 1 |
-| `taint.py` | Session store, taint records, overlap check, probe counters | 1 |
+| `cascade/tier3_classifier.py` | ONNX session (CPU/CUDA/DirectML/CoreML) in a worker thread; chunking, batching, per-document calibration, block + abstain thresholds; fail-closed | 1 |
+| `taint.py` | Session store (`clientInfo` + peer + `traceparent`), decaying taint records, overlap check, probe counters | 1 |
 | `pinning.py` | SHA-256 pin store (SQLite), quarantine state, description-scan hook, known manifests | 1 |
 | `dashboard/` | FastAPI + WebSocket; traffic log, flagged inspector, pin viewer; token on every endpoint | 1 (min) / 2 (full) |
-| `audit.py`, `auth.py` | JSONL audit + OTLP export; JWKS validation + policy map | 1E |
+| `audit.py`, `auth.py` | JSONL audit (raw local, redacted, 7-day retention) + OTLP export of hashes/verdicts; JWKS validation + policy map | 1E |
 | `state_tracker.py`, `decorator.py`, `explainer/` | Drift + loop breaker; `@shield`; Tier 4 providers | 2 |
 | `benchmarks/` | Held-out harness, adaptive set, CI latency baseline | 1 |
 
@@ -304,7 +318,7 @@ SecurityConfig(
     explainer=ExplainerProvider.NONE,    # Stage 2: OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC (opt-in)
 )
 ```
-- Same fields in `mcp-shield.toml`; Stage 1E adds `[audit]`, `[auth]`, `[policies.<role>]`, `[clients.<name>]`
+- Same fields in `mcp-shield.toml`; per-tool `[tools.<name>]` sections carry privilege class, root allowlist and `mode = "shell"` (operators allowed, every call strict); Stage 1E adds `[audit]`, `[auth]`, `[policies.<role>]`, `[clients.<name>]`
 - Dashboard binds `127.0.0.1`, token on every endpoint, `Origin`/`Host` validated — CVE-2025-49596 is the cautionary tale
 
 ---
@@ -320,10 +334,12 @@ SecurityConfig(
 | Task | 4-class sequence classification of one untrusted segment with a context prefix |
 | Classes | `benign` ~85% (≥ 25% hard negatives) · `indirect_injection` ~8% · `command_injection` ~4% · `description_poisoning` ~3% |
 | Training sources | Synthetic MCP-shaped generation (frontier models, structured output, benign twins) · InjecAgent · captured benign traffic from reference servers, ToolBench / xLAM traces · MCP-AttackBench **if released** (bonus, not prerequisite) |
+| Hard negatives | Security docs, shell commands in code-review output, innocent uses of "ignore" / "system prompt", **benign imperative tool descriptions**, **host-authored arguments that read like instructions** |
+| Licences & ethics | Licence recorded per source; synthetic data from an open-weight generator (Qwen3, Apache-2.0); adaptive attacks released to researchers only; sandbox accounts for captured traffic |
 | Minimum viable dataset | **≥ 20,000 segments** from sources we control |
 | Held-out (never trained on) | AgentDojo · MCPSecBench · adaptive red-team set · benign replay |
 | Leakage control | Global dedup (MinHash + cosine > 0.92) **before** a grouped, stratified 80/10/10 split; augmentation on train only |
-| Calibration | Temperature scaling; block threshold at FPR 0.5%; abstain threshold at FPR ≈ 2% |
+| Calibration | Temperature scaling; block threshold at FPR 0.5%; abstain threshold at FPR ≈ 2%; **per-document** calibration (max-pooled chunk score vs a length-adjusted threshold), FPR reported per document |
 
 **Since Review-1**: the plan trained a generative model to emit a JSON "authorization manifest" with a hand-written confidence score, on the same benchmarks it evaluated on. Both problems are gone.
 
@@ -334,10 +350,11 @@ SecurityConfig(
 | Layer | Choice |
 |:--|:--|
 | Language / runtime | Python ≥ 3.10; `asyncio` with `uvloop` (macOS/Linux) / `winloop` (Windows) |
-| Proxy | ASGI app served by `uvicorn`; `httpx` to upstream Streamable HTTP; `asyncio.subprocess` for stdio wrapping |
+| Proxy | ASGI app served by `uvicorn`; `httpx` to upstream Streamable HTTP; `asyncio.subprocess` for stdio wrapping; classifier inference in a worker thread |
+| Protocol support | `2026-07-28` primary; `2025-11-25` hosts/servers passed through during the deprecation window, legacy sampling/elicitation classified like MRTR; Stage 1 fronts stdio, non-OAuth HTTP and self-operated servers |
 | Model | `microsoft/mdeberta-v3-base` (MIT) → fine-tuned with `transformers` + `datasets`; exported with `optimum` → ONNX; fp16 on GPU, int8 on CPU |
 | Inference | `onnxruntime` with CUDA / DirectML / CoreML execution providers; CPU fallback everywhere |
-| Tier 2 & taint | Small ONNX embedding model (BGE-small / E5-small class); MinHash shingles (`datasketch`) |
+| Tier 2 & taint | Hashing + exact signatures; embeddings reuse the Tier 3 encoder's pooled vector (no second model); MinHash shingles (`datasketch`) |
 | Storage | SQLite for pin store and audit; in-process LRU for the cache |
 | Dashboard | FastAPI + WebSocket + static HTML/JS (D3 / Cytoscape in Stage 2) |
 | Config / packaging | `mcp-shield.toml` (`tomllib`); `pyproject.toml`, `build`, `twine`, PyPI Trusted Publishing; `huggingface_hub` + `platformdirs` |
@@ -389,7 +406,7 @@ _Figure 4: Stage 1 build calendar (dates indicative — re-cut against the offic
 |:--|:--|:--|:--|:--|
 | 1–2 | 14 Sep – 27 Sep | 1 · Dataset | ≥ 20k segments, dedup + grouped split, held-out suites frozen | 2 data · 2 proxy skeleton |
 | 3–4 | 28 Sep – 11 Oct | 2 · Classifier | `mcp-shield-clf` fine-tuned, calibrated, ONNX, model card | 2 model · 2 Tier 1/2 |
-| 5–7 | 12 Oct – 1 Nov | 3 · Proxy + cascade | HTTP + stdio proxy, Tier 1–3 wired, `doctor`, `install` | all |
+| 5–7 | 12 Oct – 1 Nov | 3 · Proxy + cascade | HTTP + stdio proxy (both protocol revisions), Tier 1–3 wired, `doctor`, `install` | all |
 | 8–9 | 2 Nov – 15 Nov | 4 · Protection | Pin store + quarantine, taint + probe detection, minimal dashboard | 2 + 2 |
 | 10–11 | 16 Nov – 29 Nov | 5 · Validation | Held-out + adaptive benchmarks, CI CPU baseline, PyPI v0.1 | all |
 | 12–13 | 30 Nov – 13 Dec | 6 · Enterprise basics | E1 → E2 → E3 → E4 (cut in reverse order if late) | 2 E1/E2 · 2 E3/E4 |
@@ -409,6 +426,7 @@ _Figure 4: Stage 1 build calendar (dates indicative — re-cut against the offic
 - Fully paraphrased intent that no longer overlaps tainted text — Tier 3 runs before content reaches the host; principled fix (CaMeL) is host-side
 - A first review that accepts a poisoned description neither the reviewer nor the classifier recognises (trust-on-first-review, not zero-trust)
 - Clean-looking strings executed by a careless server; MRTR as a live channel; latency scaling with content length
+- Third-party OAuth-protected remote servers are a Stage 2 item (token audience binding); sessions are per host app, not per conversation; images are not inspected; legitimate server updates trip the pin
 
 **Speaker notes**: Every mechanism in the defence matrix carries a residual-risk column. We would rather the panel hear these from us.
 
