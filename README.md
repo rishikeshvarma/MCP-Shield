@@ -35,7 +35,7 @@ Spec revision **`2026-07-28`** made MCP stateless: protocol-level sessions and t
 
 **Primary — individual developers & small teams.** Anyone running MCP servers or agents who wants real protection without a security team or a cloud bill: `pip install`, zero infra, $0 by default, full protection on a CPU-only laptop.
 
-**Secondary (roadmap) — enterprise SecOps & platform teams.** Kubernetes sidecar, eBPF interception, SIEM export, IAM sync — see [Roadmap](#-roadmap). Deliberately deferred so it never pulls effort off the core detection engine.
+**Secondary — enterprise SecOps & platform teams.** A basic enterprise set ships this semester (audit log + OTLP export, Docker / Kubernetes sidecar manifest, OAuth 2.1 validation with a policy map — Stage 1E); service-mesh, eBPF, SIEM connectors and IAM sync stay on the [Roadmap](#-roadmap). Basics are built *after* the core is benchmarked, so they never pull effort off the detection engine.
 
 ---
 
@@ -44,7 +44,9 @@ Spec revision **`2026-07-28`** made MCP stateless: protocol-level sessions and t
 - 🔀 **Local proxy, both directions**: `mcp-shield proxy` for Streamable HTTP upstreams or wrapped stdio servers — no changes to your host or your servers.
 - 🚀 **Sub-50 ms hot-path cascade (target)**: structural policy gate (<1 ms) → cache & signature layer (1–5 ms) → fine-tuned **22M-parameter encoder classifier** (≤40 ms per ≤512-token segment on CPU). Numbers are targets pending our benchmark — see [Benchmarks](#-benchmarks).
 - 🧠 **Classifier on every untrusted segment**, not just "suspicious-looking" ones: tool results, resources, tool/prompt descriptions, MRTR input requests, free-text arguments. Four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
-- 📌 **Capability pinning + description scan**: SHA-256 pins per tool catch rug-pulls; the classifier reads descriptions at `tools/list` time to catch first-contact poisoning.
+- 📌 **Capability pinning + description scan + quarantine**: SHA-256 pins per tool catch rug-pulls; the classifier reads descriptions at `tools/list` time to catch first-contact poisoning; a server with no pin yet starts **quarantined** — dangerous tools withheld, results under strict taint — until you review and accept its manifest.
+- 🧭 **One-command coverage**: `mcp-shield install --host claude-desktop` routes every server in your host's MCP config through the proxy (backup kept, `uninstall` restores).
+- 🏢 **Enterprise basics (Stage 1E)**: JSONL audit log with OTLP export, Docker / Kubernetes sidecar manifest, OAuth 2.1 bearer validation with a basic policy map.
 - 🧬 **Session taint state**: untrusted content is remembered outside the LLM; later `write` / `execute` / `egress` calls whose arguments overlap tainted content are blocked (or, Stage 2, sent to you for approval via MRTR).
 - 🛑 **Argument policy for command injection**: path canonicalisation + root allowlists, shell-metacharacter rejection, URL allowlists — the realistic defence for the 43% of servers Equixly found vulnerable.
 - 🎛️ **Localhost dashboard** with a flagged-request inspector (why, which tier, calibrated probability, one-click exact-hash override) — token-protected on every endpoint, because an unauthenticated localhost dashboard was CVE-2025-49596.
@@ -101,7 +103,10 @@ Prints the OS, event loop, ONNX Runtime execution provider (CPU / CUDA / DirectM
 ### 3. Run the proxy (Stage 1, primary)
 
 ```bash
-# A Streamable HTTP MCP server behind the proxy
+# One command: route every server in your host's MCP config through the proxy (backup kept; `mcp-shield uninstall` restores)
+mcp-shield install --host claude-desktop
+
+# Or run the proxy by hand — a Streamable HTTP MCP server behind it:
 mcp-shield proxy --listen 127.0.0.1:8800 --upstream https://tools.example.com/mcp
 
 # A local stdio server wrapped by the proxy — point your host at this command instead of the server
@@ -210,19 +215,20 @@ For reference only: the base paper's own defence, **ATTESTMCP** — capability a
 
 |Stage|Scope|
 |:--|:--|
-|**Stage 1 — MVP (this semester)**|`mcp-shield proxy` (HTTP + stdio) · Tier 1–3 · untrusted-segment extractor · pinning + description scan · session taint with overlap check · `mcp-shield doctor` · benchmark harness · dashboard (traffic log + flagged inspector + pin viewer) · PyPI release|
+|**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (HTTP + stdio) · Tier 1–3 with abstain band · untrusted-segment extractor · pinning + description scan + first-contact quarantine · session taint with overlap check + probe detection · MRTR provenance banner · `mcp-shield doctor` / `install` · benchmark harness with CI CPU baseline · dashboard (traffic log + flagged inspector + pin viewer) · PyPI release|
+|**Stage 1E — Enterprise Basics (this semester, built last)**|JSONL audit log + OTLP export · Dockerfile / docker-compose + Kubernetes sidecar manifest · OAuth 2.1 bearer validation + basic policy map · per-client config — cut first if validation runs late|
 |**Stage 2**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama / opt-in cloud) · MRTR human approval · full dashboard · `clf-base` model|
-|**Future / Enterprise**|gVisor sandboxed execution · OAuth-claim privilege scoping / RBAC · Kubernetes Envoy sidecar · eBPF interception · OTLP / SIEM export (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID)|
+|**Future — Enterprise Advanced**|Envoy / service-mesh filter · eBPF interception · SIEM connectors (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID) · gVisor sandboxed execution · dashboard SSO · central policy server|
 
 ---
 
 ## ⚠️ Known Limitations
 
-- **Capability pinning is trust-on-first-use (TOFU).** Pinning catches changes after first contact; the description scan narrows first-contact risk but a poisoned description the classifier misses is pinned as-is — the same limitation the base paper names for ATTESTMCP.
-- **Bounded classifiers can be bypassed by adaptive attacks.** Controlled-release prompting (Fairoze et al., 2025) and distribution shift (Fomin et al., 2026) are real; our weights are open, so an attacker can optimise against them offline. We report adaptive-set ASR separately and rely on defence in depth (taint state, pinning, argument policy), not the classifier alone.
+- **Pinning is trust-on-first-*review*, not zero-trust.** A new server starts quarantined until you accept its manifest, with the classifier's verdicts shown alongside — but a description whose malice neither you nor the classifier recognise is still accepted. The base paper names the same underlying limit (TOFU) for ATTESTMCP.
+- **Bounded classifiers can be bypassed by adaptive attacks.** Controlled-release prompting (Fairoze et al., 2025) and distribution shift (Fomin et al., 2026) are real; our weights are open, so an attacker can optimise against them offline. We report adaptive-set ASR separately and rely on defence in depth (taint state, pinning, argument policy), not the classifier alone. Online probing is throttled — a streak of blocks escalates the session and then quarantines the source — and an abstain band raises the guard when the classifier is unsure, but offline optimisation against open weights remains possible.
 - **Session taint catches verbatim and near-verbatim smuggling, not fully paraphrased intent.** That is why the classifier runs *before* content reaches the host; the principled fix is host-side control-flow separation (CaMeL), which a proxy cannot impose.
 - **Latency scales with content length.** The sub-50 ms target is per ≤512-token segment; very large tool results are chunked and batched, and their p95 is reported separately.
-- **The proxy protects only the servers routed through it.** Flows to servers the host still reaches directly are invisible; `mcp-shield doctor` warns when it sees unproxied servers in the host config. In stdio mode there are no `Mcp-*` headers, so Tier 1 works from the parsed body alone.
+- **The proxy protects only the servers routed through it.** `mcp-shield install` routes every server in the host config through the proxy and `doctor` warns about any added later, but a server the host reaches directly is invisible. In stdio mode there are no `Mcp-*` headers, so Tier 1 works from the parsed body alone.
 - **The proxy is itself a local service and is hardened as one.** Following the spec's Security Best Practices, it binds to `127.0.0.1`, validates `Host`, rejects browser `Origin` requests, and never spawns a process from a network or dashboard request — stdio commands come only from the CLI or the config file, confirmed in the terminal.
 - **MRTR replaced Sampling, it did not remove the vector.** Sampling is deprecated in `2026-07-28` (12-month window); server-authored `inputRequests` now carry the same risk and are classified like any other untrusted text.
 

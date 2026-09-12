@@ -8,15 +8,15 @@
 
 |Vulnerability|Why existing solutions miss it|MCP-Shield mechanism|Stage|Effect (honest verb)|Residual risk|
 |:--|:--|:--|:--|:--|:--|
-|**1. Indirect prompt injection via results, resources, MRTR input requests**|WAFs match code syntax; cloud guardrails are protocol-blind, ingress-only, and slow|**Tier 3 encoder classifier** on every untrusted segment before it reaches the host; Tier 2 cache/signature layer|1|**Detects and blocks** the classifier's four attack classes at a calibrated FPR ≤ 0.5%|Adaptive attacks written against the classifier (Fairoze et al., 2025); distribution shift (Fomin et al., 2026) — measured and reported, not hidden|
-|**2. Tool-description poisoning (first-contact and rug-pull)**|Scanners check schema validity or run once at install; proxies pass descriptions through|**Capability pinning** (SHA-256, re-checked on `toolsListChanged`) **+ description scan** with the classifier at list time|1|**Blocks** rug-pulls deterministically; **detects** first-contact poisoning the classifier recognises|TOFU: a poisoned description the classifier misses is pinned as-is (same limitation the base paper names for ATTESTMCP)|
-|**3. Parameter-bound command injection**|Schema validation accepts any string; kernel sandboxes see a legal syscall|**Tier 1 argument policy**: path canonicalisation + root allowlist, shell-metacharacter rejection in path/command fields, URL scheme/host allowlists|1|**Blocks** the operator and traversal patterns Equixly found in 43% / 22% of servers|Server-side logic that builds commands from *unflagged* fields; hence the Stage 2 per-tool approval flag and the enterprise gVisor option|
+|**1. Indirect prompt injection via results, resources, MRTR input requests**|WAFs match code syntax; cloud guardrails are protocol-blind, ingress-only, and slow|**Tier 3 encoder classifier** on every untrusted segment before it reaches the host; Tier 2 cache/signature layer|1|**Detects and blocks** the classifier's four attack classes at a calibrated FPR ≤ 0.5%|Offline adaptive attacks against the open weights (Fairoze et al., 2025) — online probing is throttled by probe detection, and the abstain band raises the guard under distribution shift (Fomin et al., 2026); adaptive-set ASR is measured and reported, not hidden|
+|**2. Tool-description poisoning (first-contact and rug-pull)**|Scanners check schema validity or run once at install; proxies pass descriptions through|**Capability pinning** (SHA-256, re-checked on `toolsListChanged`) **+ description scan** with the classifier at list time **+ first-contact quarantine** (new servers get no dangerous tools until a human accepts the manifest)|1|**Blocks** rug-pulls deterministically; **detects** first-contact poisoning the classifier recognises; **holds** everything else for review|TOFU narrowed to trust-on-first-review: a human sees descriptions and scan verdicts before a new server gets dangerous capabilities, but can still approve malice neither they nor the classifier recognise|
+|**3. Parameter-bound command injection**|Schema validation accepts any string; kernel sandboxes see a legal syscall|**Tier 1 argument policy**: every string argument scanned; block in path/command/URL-typed fields (canonicalisation + root allowlist, scheme/host allowlists); a hit anywhere else forces `strict` policy for the call|1|**Blocks** the operator and traversal patterns Equixly found in 43% / 22% of servers|A hit in an unflagged field no longer passes silently, but a server that executes a *clean-looking* string is beyond any proxy; hence the Stage 2 approval flag and the enterprise gVisor option|
 |**4. Multi-turn state drift (split injections)**|Stateless proxies evaluate each message alone|**Session taint state** (Stage 1) carries context; **sliding-window tracker** (Stage 2) adds drift score + loop breaker|1 / 2|**Reduces** — escalates a drifting session to `strict` policy|A fragment sequence with no single flagged turn and no overlap with tainted content|
 |**5. Data-flow abuse after ingesting untrusted content (exfiltration, command smuggling)**|Guardrails scan text, not the *flow* from result to later tool call|**Proxy-held session taint state** + argument-overlap check on `write` / `execute` / `egress` calls; Stage 2 human approval via MRTR|1 / 2|**Blocks** verbatim and near-verbatim smuggling; **gates** high-privilege calls in tainted sessions under `strict`|Fully paraphrased intent — the reason Tier 3 runs *before* content reaches the host; principled fix is host rewriting (CaMeL)|
 |**6. Context-length DoS ("denial of wallet")**|Nothing upstream of the host measures size or redundancy|**Tier 2 DoS guard**: length caps, repetition- and compression-ratio checks|1|**Blocks** padding and recursive-text payloads before the classifier and the host|Legitimately large results need a per-tool cap override|
 |**7. Header / body desync**|Header-only filters trust `Mcp-Name`|**Tier 1 consistency check** mirroring `HeaderMismatchError` (`-32020`)|1|**Blocks** deterministically|None known|
 |**8. Cloud-guardrail latency and cost**|Every check is a cloud round trip: hundreds of ms to seconds, per-token billing|**Local small encoder** (int8 ONNX, CPU-capable) — end-to-end p95 target < 50 ms, $0|1|**Removes** the cloud dependency on the hot path|Latency scales with content length for very large results (reported separately)|
-|**9. Credential / privilege misuse by a hijacked agent**|IAM validates the token, not what the agent was tricked into doing|OAuth-claim privilege scoping / RBAC|**Future**|—|Out of scope for individual-developer users; design only|
+|**9. Credential / privilege misuse by a hijacked agent**|IAM validates the token, not what the agent was tricked into doing|**Stage 1E basic policy map**: OAuth 2.1 bearer validated at the proxy (JWKS, `iss`/`aud`/`exp`); subject or role → allowed servers, tools and maximum privilege class, enforced before every call|1E|**Limits** what a hijacked agent can call to what its human is allowed to call|Fine-grained RBAC, IAM sync and a central policy server are Future; a hijacked agent can still misuse tools its human *is* allowed to call|
 
 ---
 
@@ -42,13 +42,20 @@ graph TD
         F9["@shield decorator / ASGI middleware"]
     end
 
-    subgraph Future["Future / Enterprise"]
+    subgraph Stage1E["Stage 1E — Enterprise Basics (this semester, built last)"]
+        F12["Audit log (JSONL) + OTLP export"]
+        F13["Docker / Kubernetes sidecar manifest"]
+        F14["OAuth 2.1 validation + basic policy map"]
+    end
+
+    subgraph Future["Future — Enterprise Advanced"]
         F10["gVisor Sandboxing"]
-        F11["OAuth-claim Privilege Scoping / RBAC"]
+        F11["Service mesh · eBPF · SIEM connectors · IAM sync"]
     end
 
     Proxy --- Stage1
-    Stage1 -.-> Stage2
+    Stage1 -.-> Stage1E
+    Stage1E -.-> Stage2
     Stage2 -.-> Future
 ```
 
@@ -63,7 +70,8 @@ graph TD
 
 - **Pin**: canonical-JSON SHA-256 per tool on first `tools/list`; compared on every later listing and on `toolsListChanged`; any change withholds the tool and raises `SecurityTamperingError` until the developer re-pins explicitly.
 - **Scan**: descriptions and schema strings go through Tier 3 at list time; a flagged tool is never shown to the host.
-- **Known limitation — TOFU**: pinning protects against *changes* after first contact; scanning narrows first-contact risk but cannot remove it.
+- **First-contact quarantine**: a server with no pin yet exposes only `read`-class tools and runs under `strict` taint until the developer reviews the manifest and the scan verdicts and accepts them; published pins for the reference servers are trusted on match.
+- **Known limitation — TOFU, narrowed**: pinning alone protects against *changes* after first contact; quarantine puts a human review in front of first contact, but a reviewer can still accept a description whose malice neither they nor the classifier recognise.
 
 ### 3. Session Taint State (Stage 1) and Human Approval (Stage 2)
 
@@ -92,10 +100,20 @@ graph TD
 
 ---
 
+### 8. Enterprise Basics (Stage 1E)
+
+- **E1 audit log + OTLP export**: every decision as one JSON line locally and, when enabled, as OpenTelemetry logs/spans with the spec's `_meta` trace context propagated — any OTLP collector receives it without a vendor connector.
+- **E2 container deployment**: Dockerfile, docker-compose, and a plain Kubernetes sidecar manifest (the proxy in a container next to the agent; no service-mesh filter).
+- **E3 OAuth 2.1 validation + basic policy map**: bearer token validated at the proxy (JWKS, `iss`/`aud`/`exp`); subject or role → allowed servers, tools and maximum privilege class.
+- **E4 per-client configuration** in `mcp-shield.toml`.
+- **Cut-line rule**: built as Phase 6, after validation; dropped in the order E4 → E3 → E2 if Phase 5 runs late. Full description in `07` §7.
+
+---
+
 ## What this document no longer claims
 
 - That MCP-Shield "solves every cross-domain vulnerability" or is "bulletproof" — the Residual-risk column exists for a reason.
 - That Tier 3 runs a 7B generative SLM in 30–40 ms.
 - That taint tags are cryptographic or travel inside strings.
 - That gVisor is part of the default developer deployment.
-- That privilege scoping / RBAC is a delivered feature.
+- That privilege scoping beyond the Stage 1E basic policy map (fine-grained RBAC, IAM sync, central policy) is a delivered feature.

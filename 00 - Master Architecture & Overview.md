@@ -15,6 +15,7 @@
 - **A Local Security Proxy**: `mcp-shield proxy` sits between an MCP host (Claude Desktop, Cursor, a custom agent) and the MCP servers it uses, inspecting **both directions** of JSON-RPC 2.0 traffic — tool descriptions, tool results, resource contents, and server-issued input requests — not just the host's requests.
 - **A Real-Time Semantic Firewall**: a three-tier hot-path cascade (structural policy gate → cache/signature layer → fine-tuned encoder classifier) that detects Indirect Prompt Injection, Tool-Description Poisoning, and Parameter Command Injection, with an end-to-end target under **50 ms**.
 - **A Developer Library**: a secondary `@shield` decorator / ASGI middleware for developers who write MCP servers and want their own tool execution hardened.
+- **Enterprise-deployable in basic form**: an audit log with OTLP export, a Docker / Kubernetes sidecar deployment, and OAuth 2.1 bearer validation with a basic policy map (Stage 1E) — enough to run the proxy inside a team's infrastructure; service-mesh, eBPF, SIEM connectors and IAM sync remain roadmap.
 
 ### What MCP-Shield IS NOT:
 
@@ -89,11 +90,26 @@ Full tier definitions, the canonical latency table, and error types: [[02 - Syst
 
 |Stage|Deliverables|Status|
 |:--|:--|:--|
-|**Stage 1 — this semester (MVP)**|`mcp-shield proxy` (Streamable HTTP + stdio) · Tier 1 policy gate · Tier 2 cache/signature layer · Tier 3 encoder classifier (`mcp-shield-clf-small`, ONNX) · untrusted-segment extractor · capability pinning + description scan · session taint state with overlap check · `mcp-shield doctor` · benchmark harness on held-out suites · minimal dashboard (traffic log + flagged-request inspector) · PyPI release|In progress|
-|**Stage 2**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama, consent-gated; or opt-in cloud) · MRTR-based human approval · full dashboard (topology map, tool hub, model switcher) · `mcp-shield-clf-base`|Planned|
-|**Future / Enterprise**|gVisor sandboxing · OAuth-claim privilege scoping / RBAC · Kubernetes sidecar · eBPF interception · SIEM / OTLP export · IAM sync|Roadmap only|
+|**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (Streamable HTTP + stdio) · Tier 1 policy gate (every string argument scanned) · Tier 2 cache/signature layer · Tier 3 encoder classifier (`mcp-shield-clf-small`, ONNX) with abstain band · untrusted-segment extractor · capability pinning + description scan + first-contact quarantine · session taint state with overlap check and probe detection · MRTR provenance banner · `mcp-shield doctor` and `mcp-shield install` · benchmark harness on held-out suites with a CI CPU-only baseline · minimal dashboard (traffic log, flagged-request inspector, pin viewer) · PyPI release|In progress|
+|**Stage 1E — Enterprise Basics (this semester, built last)**|Structured JSONL audit log + OTLP export with `_meta` trace-context · Dockerfile / docker-compose + plain Kubernetes sidecar manifest · OAuth 2.1 bearer validation (JWKS, `iss`/`aud`/`exp`) + basic policy map (subject or role → servers, tools, maximum privilege class) · per-client config sections|Scheduled as Phase 6; cut first if validation runs late|
+|**Stage 2 (next semester)**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama, consent-gated; or opt-in cloud) · MRTR-based human approval · full dashboard (topology map, tool hub, model switcher) · `mcp-shield-clf-base`|Planned|
+|**Future — Enterprise Advanced**|Envoy / service-mesh filter · eBPF interception · SIEM connectors (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID) · gVisor sandboxing · dashboard SSO · central policy server|Roadmap only|
 
 Anything in a later stage is described in this vault as a design, not as a delivered feature.
+
+### Indicative build calendar (14 weeks, team of four)
+
+|Weeks|Phase|Deliverable|Split|
+|:--|:--|:--|:--|
+|1–2|Phase 1 — Dataset|Minimum viable dataset (≥ 20k segments), global dedup + grouped split, held-out suites frozen|2 on data · 2 on proxy skeleton|
+|3–4|Phase 2 — Classifier|`clf-small` fine-tuned, calibrated (block + abstain thresholds), ONNX-exported, model card|2 on model · 2 on Tier 1/2|
+|5–7|Phase 3 — Proxy + cascade|HTTP + stdio proxy, extractor, Tier 1–3 wired, `doctor`, `install`|all|
+|8–9|Phase 4 — Pin, scan, taint, dashboard|Pin store + quarantine, taint state + probe detection, minimal dashboard|2 + 2|
+|10–11|Phase 5 — Validation|Held-out + adaptive benchmarks, CI CPU baseline, PyPI release|all|
+|12–13|Phase 6 — Enterprise basics|E1 audit/OTLP → E2 container/sidecar → E3 OAuth + policy map → E4 per-client config|2 on E1/E2 · 2 on E3/E4|
+|14|Buffer|Report, presentation, slack for slips|all|
+
+The calendar is indicative and will be re-cut against the real semester dates; the two fixed rules are the **order** (core before enterprise) and the **cut-line** (Phase 6 drops before Phase 5 does).
 
 ---
 

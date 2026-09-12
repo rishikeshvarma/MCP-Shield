@@ -43,7 +43,7 @@ ATTESTMCP (the paper's fix) addresses (1) and the authentication half of (2)/(3)
 * **Mechanism**: instructions embedded in the natural-language `description` of a tool, in schema field descriptions, or in prompt templates returned by `tools/list` / `prompts/list`.
 * **Two variants**: *first-contact* (poisoned from the first listing) and *rug-pull* (benign at first, changed later — a `toolsListChanged` notification is all it takes).
 * **Why proxies miss it**: they validate JSON structure, not the meaning of the text the host LLM will read.
-* **MCP-Shield**: capability pinning catches rug-pulls; classifier scanning of descriptions at list time catches first-contact poisoning ([[02 - System Architecture & Technical Implementation]] §5).
+* **MCP-Shield**: capability pinning catches rug-pulls; classifier scanning of descriptions at list time catches first-contact poisoning; a server with no pin yet is quarantined — dangerous tools withheld — until a human reviews and accepts its manifest ([[02 - System Architecture & Technical Implementation]] §5).
 
 ### 2. Indirect Injection via Results and MRTR
 * **Mechanism**: a legitimate server returns text (issue body, web page, PDF, database row) that contains instructions; or a server returns `resultType: "input_required"` with `inputRequests` that phrase a prompt to the user or host.

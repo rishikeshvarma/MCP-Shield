@@ -134,6 +134,10 @@ graph TD
 # Detect OS, accelerators, cache dir; show which tiers and which execution provider will run
 mcp-shield doctor
 
+# Route every server in the host's MCP config through the proxy (backup kept; `mcp-shield uninstall` restores)
+mcp-shield install --host claude-desktop
+mcp-shield install --host cursor
+
 # Run the proxy (Stage 1) — HTTP upstream or wrapped stdio server
 mcp-shield proxy --listen 127.0.0.1:8800 --upstream https://tools.example.com/mcp
 mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
@@ -275,25 +279,65 @@ This is a visible, startup-time decision: `doctor` prints the event loop, execut
 
 ---
 
-## 7. Enterprise System Integration Blueprint (Future / Enterprise)
+## 7. Enterprise Integration — Basics This Semester (Stage 1E), Advanced Later
 
-Roadmap only; none of this is part of Stage 1 or Stage 2.
+Enterprise deployment is no longer "roadmap only". A deliberately small **Enterprise Basics** set is part of this semester's scope, built *after* Stage 1 Core is benchmarked so that a slip cannot damage the core thesis; the heavier integrations stay on the roadmap.
 
 ```mermaid
 graph TD
-    Enterprise["Enterprise infrastructure"] --> Gateway["MCP-Shield enterprise gateway"]
-    Gateway --> K8s["1. Kubernetes sidecar (Envoy / Istio filter)"]
-    Gateway --> eBPF["2. Kernel eBPF traffic interception"]
-    Gateway --> SIEM["3. SIEM / OTLP audit streaming"]
-    Gateway --> IAM["4. Corporate IAM sync (Okta / Vault / OIDC)"]
-    Gateway --> Sandbox["5. gVisor sandboxed tool execution"]
+    Proxy["mcp-shield proxy"] --> E1["E1 · Structured audit log (JSONL) + OTLP export"]
+    Proxy --> E2["E2 · Dockerfile / docker-compose + plain Kubernetes sidecar manifest"]
+    Proxy --> E3["E3 · OAuth 2.1 bearer validation (JWKS, iss/aud/exp) + basic policy map"]
+    Proxy --> E4["E4 · Per-client config sections and allowlists"]
+
+    subgraph Future["Future — Enterprise Advanced"]
+        A1["Envoy WASM filter / service mesh"]
+        A2["eBPF interception"]
+        A3["SIEM connectors: Splunk · Datadog · Sentinel"]
+        A4["IAM sync: Vault · Okta / Entra ID"]
+        A5["gVisor sandboxing · dashboard SSO · central policy server"]
+    end
+    E1 -.-> A3
+    E2 -.-> A1
+    E3 -.-> A4
 ```
 
-1. **Kubernetes sidecar**: `mcp-shield-sidecar` intercepting inter-agent HTTP traffic via Envoy filters.
+### Stage 1E — Enterprise Basics (this semester, built last)
+
+1. **E1 — Audit log + OTLP export.** Every decision (tier, class, probability, session, server, tool, verdict) is written as one JSON line to a local audit file and, when enabled, exported through the OpenTelemetry SDK as logs and spans. The spec's `_meta` trace-context keys (`traceparent`, `tracestate`, `baggage`) are propagated, so a blocked call appears in the same trace as the agent that made it. Any OTLP-compatible collector (Grafana, Jaeger, the Datadog agent, the Splunk OTel collector) receives it — no vendor connector needed.
+2. **E2 — Container deployment.** A `Dockerfile` and `docker-compose.yml` run the proxy as a container; a plain Kubernetes manifest runs it as a **sidecar** in the agent's pod (shared pod network, the host points at `localhost:8800`). No Envoy filter, no CRDs — the sidecar is just the proxy in a container next to the agent.
+3. **E3 — OAuth 2.1 bearer validation + basic policy map.** In HTTP mode the proxy validates the `Authorization` bearer token the host presents (signature via JWKS, `iss`, `aud`, `exp`) and maps the token's subject or role claim to a policy in `mcp-shield.toml`: allowed servers, allowed tools, and the maximum privilege class that principal may invoke. This is *basic* privilege scoping — a hijacked agent can call nothing its human could not — and the same subject is the session key for taint state.
+4. **E4 — Per-client configuration.** `[clients.<name>]` sections carry allowlists, taint policy and result-size caps per client; `[policies.<role>]` sections carry E3's maps.
+
+```toml
+# mcp-shield.toml (excerpt)
+[audit]
+file          = "./mcp-shield-audit.jsonl"
+otlp_endpoint = "http://localhost:4318"     # optional
+
+[auth]
+jwks_url = "https://login.example.com/.well-known/jwks.json"
+issuer   = "https://login.example.com/"
+audience = "mcp-shield-proxy"
+
+[policies.analyst]
+allowed_servers = ["postgres", "github"]
+max_privilege   = "read"
+
+[policies.engineer]
+allowed_servers = ["postgres", "github", "filesystem"]
+max_privilege   = "write"
+```
+
+**Cut-line rule**: E1–E4 are scheduled as Phase 6 (build calendar in `00` §5). If Phase 5 validation runs late, E4, E3 and E2 are dropped in that order; E1 is small enough to keep.
+
+### Future — Enterprise Advanced (roadmap)
+
+1. **Service-mesh integration**: an Envoy / Istio filter so the proxy is injected without changing pod manifests.
 2. **eBPF interception**: zero-code-change capture of JSON-RPC sockets on Linux hosts.
-3. **SIEM / OTLP export**: audit streams to Splunk, Datadog, Elasticsearch, Microsoft Sentinel; the spec's `_meta` trace-context conventions (`traceparent`, `tracestate`) are the natural correlation keys.
-4. **IAM sync**: OAuth 2.1 claim validation against HashiCorp Vault, AWS Secrets Manager, Okta / Entra ID; the basis for privilege scoping / RBAC.
-5. **gVisor**: sandboxed execution for deployments that already run containers — Linux-only, with the per-call cost documented in `06`.
+3. **SIEM connectors**: native Splunk HEC, Datadog and Microsoft Sentinel exporters on top of E1's OTLP stream.
+4. **IAM sync**: roles and policies pulled from HashiCorp Vault, AWS Secrets Manager, Okta / Entra ID instead of `mcp-shield.toml`.
+5. **gVisor** sandboxed execution for deployments that already run containers (Linux-only, per-call cost documented in `06`); **dashboard SSO**; a **central policy server** for fleets of proxies.
 
 ---
 
@@ -308,4 +352,5 @@ graph TD
 |**Dashboard**|Embedded FastAPI|$0|1 (log + inspector) / 2 (full)|`127.0.0.1:8501`, token on every endpoint|
 |**Tier 4 explainer**|Ollama (local) or cloud API|$0 local / user's key|2|Off the hot path, opt-in|
 |**`@shield` decorator / ASGI middleware**|In the developer's server|$0|2|Tier 1 + Tier 3 on parsed payloads|
-|**Enterprise gateway features**|Envoy / eBPF / OTLP / IAM / gVisor|Enterprise|Future|Roadmap|
+|**Enterprise basics** (audit log + OTLP, Docker / K8s sidecar manifest, OAuth 2.1 validation + policy map)|In the package|$0|1E|Built after Stage 1 Core is benchmarked; cut first if validation slips|
+|**Enterprise advanced**|Envoy / eBPF / SIEM connectors / IAM sync / gVisor|Enterprise|Future|Roadmap|

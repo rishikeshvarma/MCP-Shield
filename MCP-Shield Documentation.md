@@ -57,7 +57,7 @@ Traditional firewalls were built for computer code, **not for human language**.
 ### Who is this for?
 
 - **Primary users, now**: individual developers and small teams running MCP servers or agents who want real protection with no security team and no cloud bill — `pip install`, zero infrastructure, $0.
-- **Secondary, future roadmap**: enterprise SecOps / platform teams (Kubernetes sidecar, eBPF, SIEM export, IAM sync). Deliberately not the current focus — see [[00 - Master Architecture & Overview]] §5 for the Stage 1 / Stage 2 / Future split.
+- **Secondary, in basic form this semester**: enterprise SecOps / platform teams get an audit log with OTLP export, a Docker / Kubernetes sidecar deployment and OAuth 2.1 validation with a basic policy map (Stage 1E, built after the core). Service-mesh, eBPF, SIEM connectors and IAM sync remain future work — see [[00 - Master Architecture & Overview]] §5 for the Stage 1 / 1E / 2 / Future split.
 
 ---
 
@@ -83,7 +83,7 @@ In July 2026 (spec revision `2026-07-28`) MCP became **stateless**:
 
 Around the three tiers:
 
-- **Capability pinning + description scan**: the first time a server lists its tools, MCP-Shield fingerprints them and also reads the descriptions with the classifier. If a description later changes (a "rug-pull"), the tool is blocked until you say it's fine.
+- **Capability pinning + description scan**: the first time a server lists its tools, MCP-Shield fingerprints them and also reads the descriptions with the classifier. If a description later changes (a "rug-pull"), the tool is blocked until you say it's fine. A brand-new server starts in quarantine — its dangerous tools are held back until you've looked at its descriptions and accepted them.
 - **Session taint memory**: once untrusted content has entered a session, MCP-Shield remembers it. If the agent then tries to run a command or send data that contains that content, it blocks the call (or, in Stage 2, asks you first).
 
 An optional bigger model (Stage 2) can *explain* why something was blocked — but it never sits on the fast path.

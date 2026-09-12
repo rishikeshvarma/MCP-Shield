@@ -92,6 +92,10 @@ Sources are combined in whatever proportion is needed to reach the **class mix i
 
 Frontier models with structured-output enforcement (`instructor` / `outlines`) generate MCP-shaped segments across the four classes, seeded with real tool schemas from reference servers. Every generated attack is paired with a *minimal benign twin* (same tool, same shape, no instruction) so the classifier learns the instruction, not the surface form.
 
+### Minimum viable dataset (no external dependency)
+
+The plan must not stall on data nobody controls. The floor is **≥ 20,000 training segments** built only from sources we can produce or already have: synthetic generation (B), InjecAgent (A), and captured benign traffic from the reference servers plus ToolBench / xLAM traces (C). MCP-AttackBench is a bonus if it is released, never a prerequisite.
+
 ---
 
 ## 5. Cleaning & Leakage Prevention (order matters)
@@ -150,9 +154,10 @@ Full fine-tune (no adapters needed at this size), 🤗 `transformers` `Trainer`:
 ## 8. Calibration & Threshold Selection
 
 1. **Temperature scaling** on the validation split so that a reported probability of 0.9 means roughly 90% of such segments are attacks. The dashboard shows this number; it has to mean something.
-2. **Operating threshold** on the `benign` probability chosen on validation **hard negatives** for **FPR ≤ 0.5%**; attack recall at that threshold is the headline detection number.
-3. **Per-class thresholds** may differ: `description_poisoning` runs at list time where a false positive costs little (a tool is hidden until the developer looks), so it can run at a lower threshold than `indirect_injection` on the hot path.
-4. Thresholds are shipped with the model and re-derived on every retrain; the dashboard's "Report false positive" queue (`07` §3) feeds the next training round's hard negatives.
+2. **Block threshold** on the `benign` probability chosen on validation **hard negatives** for **FPR ≤ 0.5%**; attack recall at that threshold is the headline detection number.
+3. **Abstain band**: a second, lower threshold set at FPR ≈ 2% on the same hard negatives. Segments between the two thresholds are forwarded under `strict` policy and queued for review (`02` §2). Both thresholds ship with the model.
+4. **Per-class thresholds** may differ: `description_poisoning` runs at list time where a false positive costs little (a tool is hidden until the developer looks), so it can run at a lower threshold than `indirect_injection` on the hot path.
+5. Thresholds are shipped with the model and re-derived on every retrain; the dashboard's "Report false positive" queue (`07` §3) feeds the next training round's hard negatives.
 
 ---
 
@@ -166,7 +171,7 @@ Full fine-tune (no adapters needed at this size), 🤗 `transformers` `Trainer`:
 |**FPR**|Fraction of benign held-out segments blocked|**< 0.5%**|
 |**Recall @ FPR 0.5%**|Attack segments flagged at the deployed threshold|reported|
 |**Utility retained**|Task success on AgentDojo benign tasks with vs. without MCP-Shield|**≥ 95%** of undefended|
-|**Latency**|p50 / p95 per ≤512-token segment and end-to-end, CPU-only and GPU|**p95 < 50 ms end-to-end, CPU**|
+|**Latency**|p50 / p95 per ≤512-token segment and end-to-end, CPU-only and GPU; the CPU-only number is taken on a standard 4-vCPU GitHub Actions runner so anyone can reproduce it, with our laptops reported alongside|**p95 < 50 ms end-to-end, CPU**|
 |**Baseline comparison**|Same held-out sets through Prompt Guard 2-22M/86M unmodified|reported|
 
 Problem-scale reference: 52.8% ASR for unprotected MCP and 12.4% under ATTESTMCP, both from the base paper — quoted as context, never as MCP-Shield results.
