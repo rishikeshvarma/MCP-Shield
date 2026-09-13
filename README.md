@@ -41,7 +41,7 @@ Spec revision **`2026-07-28`** made MCP stateless: protocol-level sessions and t
 
 ## 🔥 Key Features
 
-- 🔀 **Local proxy, both directions**: `mcp-shield proxy` for Streamable HTTP upstreams or wrapped stdio servers — no changes to your host or your servers.
+- 🔀 **Local proxy, both directions**: `mcp-shield proxy` for wrapped stdio servers, non-OAuth HTTP servers, or servers you operate — no changes to your host or your servers. (Third-party OAuth-protected remote servers: Stage 2, see [Known Limitations](#-known-limitations).)
 - 🚀 **Hot-path cascade under 50 ms on a GPU, under a quarter-second on CPU (targets)**: structural policy gate (<1 ms) → cache & signature layer (1–5 ms) → fine-tuned **86M-parameter encoder classifier** (≤40 ms per ≤512-token segment on GPU, ≤200 ms on CPU). Numbers are targets pending our benchmark — see [Benchmarks](#-benchmarks).
 - 🧠 **Classifier on every untrusted segment**, not just "suspicious-looking" ones: tool results, resources, tool/prompt descriptions, MRTR input requests, free-text arguments. Four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
 - 📌 **Capability pinning + description scan + quarantine**: SHA-256 pins per tool catch rug-pulls; the classifier reads descriptions at `tools/list` time to catch first-contact poisoning; a server with no pin yet starts **quarantined** — dangerous tools withheld, results under strict taint — until you review and accept its manifest.

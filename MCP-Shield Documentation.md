@@ -134,3 +134,5 @@ Design and build **MCP-Shield**: a developer-friendly, fast (sub-50 ms target on
     - Defense mapping matrix with honest verbs and residual risks; the fortifications by stage; what the design no longer claims.
 8. **[[07 - Model Distribution, PyPI Packaging & Local Dashboard]]**
     - Model hosting on Hugging Face Hub, PyPI pipeline, `mcp-shield doctor` runtime selection, dashboard (with its own security), CLI, enterprise roadmap.
+9. **[[Review-2 - PPT Content]]**
+    - Slide-by-slide content for the Review-2 deck: 25 slides in the department's seven components, speaker notes, and four exported figures (`Review-2 - Fig 1…4`).
