@@ -154,6 +154,20 @@ Full fine-tune (no adapters needed at this size), 🤗 `transformers` `Trainer`:
 |Early-stopping metric|**Recall at FPR = 0.5% on validation**|Optimises the operating point we actually deploy, not raw accuracy|
 |Seeds|3 (report mean ± sd)|Variance is reported, not hidden|
 
+### 7.1 Adversarial training rounds
+
+The weights are public (`02` §2), so an attacker's first move is to optimise inputs against them. We make that move first and learn from it — **adversarial training** (Madry et al., 2018 [27]), adapted to text with the standard attack families [28][29].
+
+1. **Round 0**: train on the dataset above.
+2. **Attack the current checkpoint white-box**, as an adversary would: gradient-guided token substitutions (HotFlip / TextFooler-style [28][29]); an LLM paraphrasing known injections while watching the classifier's score; obfuscation transforms (homoglyphs, code-switching, splitting a payload across chunks); controlled-release-style splitting [16].
+3. **Keep only attacks that still work**: each candidate must both evade the current classifier *and* still hijack an agent when tested (an evasion that no longer injects anything is not an attack).
+4. **Add them to training with benign twins** — the same transform applied to benign text — so the model learns the attack, not the artefact (otherwise "base64 present" or "mixed script" becomes a spurious attack signal).
+5. **Retrain and repeat, two to three rounds.** Stop when adaptive-set ASR plateaus or per-document FPR rises above the target. Ship the last round's weights.
+
+Rules: adversarial examples are generated **only from training-pool sources** (never from AgentDojo or MCPSecBench, or the held-out numbers become memorisation); per-document FPR (§8) is re-verified after every round, because robustness and clean accuracy trade off; each round is reported as a row (clean recall, per-document FPR, adaptive ASR). Each retrain is under an hour on the RTX 5060 Ti — attack generation is the expensive step, budgeted at a few GPU-hours per round.
+
+What this buys and what it does not: attacks need more queries and compute and transfer less between checkpoints, so the attacker's cost rises; but Fairoze et al. [16] show that for any bounded filter there exist prompts it cannot decode that the target LLM still can, and the attacker attacks the *released* weights, which by definition are the ones we never trained against. Adversarial training hardens the classifier; the limitation in `02` stays stated.
+
 ---
 
 ## 8. Calibration & Threshold Selection
@@ -192,7 +206,7 @@ In addition to the held-out benchmarks, train with each `source` removed in turn
 
 ### 9.4 Adaptive red-team set
 
-Static benchmarks saturate (Bhagwatkar et al., 2025). We add a small adaptive set: attacks written *against* the trained classifier by team members and by a frontier model with access to the classifier's scores, including controlled-release-style attacks (Fairoze et al., 2025) that no bounded filter can fully stop. This set's ASR is reported as-is; it is expected to be worse than the static numbers and that is the honest picture.
+Static benchmarks saturate (Bhagwatkar et al., 2025). We add a small adaptive set: attacks written *against* the trained classifier by team members and by a frontier model with access to the classifier's scores, including controlled-release-style attacks (Fairoze et al., 2025) that no bounded filter can fully stop. This set's ASR is reported as-is; it is expected to be worse than the static numbers and that is the honest picture. The adaptive *evaluation* set is kept disjoint from the adversarial *training* rounds (§7.1): different authors, different seed material, generated only after the final round's weights are frozen — otherwise the number would measure memorisation, not robustness.
 
 ---
 
@@ -215,4 +229,4 @@ For the dashboard's "why was this blocked?" panel — **not** on the hot path, n
 
 ## 12. Retraining Loop
 
-Dashboard false-positive reports → reviewed → added as hard negatives; confirmed blocks → added as attacks. Held-out benchmarks are never touched by this loop. Every retrain re-runs §8 and §9 and publishes a model card with the numbers, the seeds, and the LOSO gap.
+Dashboard false-positive reports → reviewed → added as hard negatives; confirmed blocks → added as attacks. Held-out benchmarks are never touched by this loop. Every retrain re-runs §8 and §9 and publishes a model card with the numbers, the seeds, and the LOSO gap. Because the weights are public, an adversarial round (§7.1) against the currently released checkpoint runs on a monthly cadence; each release moves the target.

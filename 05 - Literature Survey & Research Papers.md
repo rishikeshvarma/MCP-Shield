@@ -72,6 +72,15 @@
 **[18] Lupinacci, M. et al.** "The Dark Side of LLMs: Agent-based Attacks for Complete Computer Takeover." arXiv:2507.06850, 2025.
 - Chained tool calls escalate from a web-search tool to full host takeover — the multi-step trajectory the Stage 2 state tracker targets.
 
+**[27] Madry, A., Makelov, A., Schmidt, L., Tsipras, D. & Vladu, A.** "Towards Deep Learning Models Resistant to Adversarial Attacks." ICLR 2018. arXiv:1706.06083.
+- The canonical formulation of adversarial training as a min-max problem: train on the worst-case inputs generated against the current model. Basis for the adversarial rounds in `03` §7.1.
+
+**[28] Ebrahimi, J., Rao, A., Lowd, D. & Dou, D.** "HotFlip: White-Box Adversarial Examples for Text Classification." ACL 2018. arXiv:1712.06751.
+- Gradient-guided character/token flips against text classifiers — one of the attack generators in our adversarial rounds.
+
+**[29] Jin, D., Jin, Z., Zhou, J. T. & Szolovits, P.** "Is BERT Really Robust? A Strong Baseline for Natural Language Attack on Text Classification and Entailment." AAAI 2020 (TextFooler). arXiv:1907.11932.
+- Synonym-substitution attacks that preserve meaning while flipping a classifier — the second attack generator, and a reminder that BERT-class encoders (ours included) are attackable.
+
 ---
 
 ## Part III — Industry Reports, Specifications, and Tools
@@ -104,6 +113,7 @@
 |:--|:--|
 |Proxy placement, both directions|[1] residual analysis, [6] placement taxonomy, [14]|
 |Encoder classifier on the hot path, not a generative SLM|[5] 2.51 s/call finding, [12], [13]|
+|Adversarial training rounds against our own checkpoints|[27], [28], [29]; limits per [16]|
 |Held-out benchmarks, LOSO, adaptive set|[14], [15], [16]|
 |Session taint state as a deployable approximation|[10], [11]|
 |Pin + scan for descriptions|[1] TOFU discussion, [24]|

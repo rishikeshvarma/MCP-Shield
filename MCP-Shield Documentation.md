@@ -79,7 +79,7 @@ In July 2026 (spec revision `2026-07-28`) MCP became **stateless**:
 
 1. **Tier 1 — Structural & policy gate (under 1 ms)**: is this tool allowed for this client? Do the headers match the body? Do file paths stay inside the allowed folder? Are there shell tricks like `; rm -rf /` inside an argument? No AI involved — just rules.
 2. **Tier 2 — Cache & signature layer (1–5 ms)**: have we already checked this exact content? Does it match a known attack? Is it absurdly long or repetitive (a denial-of-service trick)?
-3. **Tier 3 — Small AI classifier (about 40 ms per chunk on a GPU, up to 200 ms on a CPU)**: a small, specially trained language model (about 86 million parameters — it runs on a laptop CPU without a GPU, just more slowly) reads every piece of text that came from an untrusted place — tool results, documents, tool descriptions, server questions — and decides: benign, injection, command injection, or poisoned description.
+3. **Tier 3 — Small AI classifier (about 40 ms per chunk on a GPU, up to 200 ms on a CPU)**: a small, specially trained language model (about 86 million parameters — it runs on a laptop CPU without a GPU, just more slowly — and it is trained against attacks on itself, so the obvious tricks are already in its training data) reads every piece of text that came from an untrusted place — tool results, documents, tool descriptions, server questions — and decides: benign, injection, command injection, or poisoned description.
 
 Around the three tiers:
 

@@ -30,7 +30,7 @@
 | Tool poisoning | Pin on first sight | Pin + classifier scan + **first-contact quarantine** |
 | Evaluation | Trained and tested on the same benchmarks | **Held-out suites**, leave-one-source-out, adaptive red-team set, CI CPU baseline |
 | Scope | One undifferentiated feature list | **Stage 1 Core → Stage 1E Enterprise Basics → Stage 2 → Future**, with a cut-line |
-| Bibliography | 13 entries, 5 unverifiable or mis-cited | **26 verified entries** |
+| Bibliography | 13 entries, 5 unverifiable or mis-cited | **29 verified entries** |
 
 **Speaker notes**: A design review between the two reviews found contradictions a security reviewer would catch: the decorator could not see other servers, the 7B model could not meet its own latency claim, and most traffic never reached the semantic classifier. Every one of those is now fixed in the design, and the rest of this deck is built on the corrected version.
 
@@ -91,6 +91,7 @@
 | [15] | Fomin et al., 2026 | Pooled CV over-reports AUC by 8–16.5 points vs leave-one-dataset-out | Mandates LOSO reporting |
 | [16] | Fairoze et al., 2025 | Controlled-release prompting bypasses bounded filters | Named in our limitations |
 | [17][18] | Agent-SafetyBench 2024; Lupinacci et al. 2025 | Multi-turn safety; chained-tool takeover | Motivates the Stage 2 state tracker |
+| [27]–[29] | Madry et al. 2018; HotFlip (Ebrahimi et al. 2018); TextFooler (Jin et al. 2020) | Adversarial training; gradient-guided and synonym-substitution text attacks | The method and the attack generators for our adversarial training rounds |
 
 ### Slide i.4 — Industry, specification and tooling sources
 
@@ -110,10 +111,10 @@
 |:--|:--|
 | **Corrected** | Base paper first author (Narek Maloyan) and full title; MCP-Guard → Xing et al., arXiv:2508.10991 (was "Kumar, 2504.11200"); Equixly year 2025 (was 2026); MCP-Bench described as a capability benchmark, as the base paper itself does; base paper's three vulnerabilities stated as the paper states them |
 | **Removed (could not be verified)** | "Securing the Mesh…" (2026), "Towards a Science of AI Agent Reliability" (2026), "The Rise of Agentic Testing" (ICSE 2026) — no authors, no identifiers; "88% incident rate (TechStories)"; a Unit 42 report whose cited title could not be confirmed |
-| **Added (13)** | CASCADE [5], MCP-DPT [6], CaMeL [10], LlamaFirewall [12], Prompt Guard 2 card [13], Bhagwatkar [14], Fomin [15], Fairoze [16], MCP spec 2026-07-28 [19], Security Best Practices [20], HackerOne [22], CVE-2025-49596 [23], the three scanners [24–26] |
-| **Consolidated** | Three disagreeing reference lists (05, presentation §5, §9) → one canonical bibliography, 26 entries, every one checked at its source |
+| **Added (16)** | CASCADE [5], MCP-DPT [6], CaMeL [10], LlamaFirewall [12], Prompt Guard 2 card [13], Bhagwatkar [14], Fomin [15], Fairoze [16], MCP spec 2026-07-28 [19], Security Best Practices [20], HackerOne [22], CVE-2025-49596 [23], the three scanners [24–26], adversarial-training references [27–29] |
+| **Consolidated** | Three disagreeing reference lists (05, presentation §5, §9) → one canonical bibliography, 29 entries, every one checked at its source |
 
-**Speaker notes**: The survey went from 13 entries, five of which would not survive a citation check, to 26 verified entries — and, more importantly, the new 2026 work (CASCADE, MCP-DPT, Fomin) directly shaped three design decisions, which the next section shows.
+**Speaker notes**: The survey went from 13 entries, five of which would not survive a citation check, to 29 verified entries — and, more importantly, the new 2026 work (CASCADE, MCP-DPT, Fomin) directly shaped three design decisions, which the next section shows.
 
 ---
 
@@ -340,6 +341,7 @@ SecurityConfig(
 | Held-out (never trained on) | AgentDojo · MCPSecBench · adaptive red-team set · benign replay |
 | Leakage control | Global dedup (MinHash + cosine > 0.92) **before** a grouped, stratified 80/10/10 split; augmentation on train only |
 | Calibration | Temperature scaling; block threshold at FPR 0.5%; abstain threshold at FPR ≈ 2%; **per-document** calibration (max-pooled chunk score vs a length-adjusted threshold), FPR reported per document |
+| Adversarial training | 2–3 rounds of attacks generated against our own checkpoints (gradient-guided substitutions, LLM paraphrase against the score, obfuscation transforms), validity-filtered, added with benign twins; per-document FPR re-verified each round; adaptive *evaluation* set kept disjoint |
 
 **Since Review-1**: the plan trained a generative model to emit a JSON "authorization manifest" with a hand-written confidence score, on the same benchmarks it evaluated on. Both problems are gone.
 
@@ -405,7 +407,7 @@ _Figure 4: Stage 1 build calendar (dates indicative — re-cut against the offic
 | Weeks | Dates | Phase | Deliverable | Split |
 |:--|:--|:--|:--|:--|
 | 1–2 | 14 Sep – 27 Sep | 1 · Dataset | ≥ 20k segments, dedup + grouped split, held-out suites frozen | 2 data · 2 proxy skeleton |
-| 3–4 | 28 Sep – 11 Oct | 2 · Classifier | `mcp-shield-clf` fine-tuned, calibrated, ONNX, model card | 2 model · 2 Tier 1/2 |
+| 3–4 | 28 Sep – 11 Oct | 2 · Classifier | `mcp-shield-clf` fine-tuned + 2–3 adversarial rounds, calibrated, ONNX, model card | 2 model · 2 Tier 1/2 |
 | 5–7 | 12 Oct – 1 Nov | 3 · Proxy + cascade | HTTP + stdio proxy (both protocol revisions), Tier 1–3 wired, `doctor`, `install` | all |
 | 8–9 | 2 Nov – 15 Nov | 4 · Protection | Pin store + quarantine, taint + probe detection, minimal dashboard | 2 + 2 |
 | 10–11 | 16 Nov – 29 Nov | 5 · Validation | Held-out + adaptive benchmarks, CI CPU baseline, PyPI v0.1 | all |
@@ -422,7 +424,7 @@ _Figure 4: Stage 1 build calendar (dates indicative — re-cut against the offic
 ### Slide C.1 — What MCP-Shield does not stop (and says so)
 
 **On the slide**
-- Offline adaptive attacks against open classifier weights — mitigated by defence in depth and probe detection; adaptive-set ASR reported
+- Offline adaptive attacks against open classifier weights — mitigated by defence in depth and probe detection and by adversarial training rounds (raise the cost, do not close the class); adaptive-set ASR reported
 - Fully paraphrased intent that no longer overlaps tainted text — Tier 3 runs before content reaches the host; principled fix (CaMeL) is host-side
 - A first review that accepts a poisoned description neither the reviewer nor the classifier recognises (trust-on-first-review, not zero-trust)
 - Clean-looking strings executed by a careless server; MRTR as a live channel; latency scaling with content length

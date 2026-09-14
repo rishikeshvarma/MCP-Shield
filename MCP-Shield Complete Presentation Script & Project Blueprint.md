@@ -223,6 +223,7 @@ graph TD
 8. **[15] Fomin et al. (2026)** — pooled cross-validation over-reports AUC by 8–16.5 points versus leave-one-dataset-out.
 9. **[16] Fairoze et al. (2025)** — controlled-release prompting bypasses bounded input filters.
 10. **[17] Agent-SafetyBench — Zhang et al. (2024)**; **[18] Lupinacci et al. (2025)** — multi-turn and chained-tool takeover trajectories.
+11. **[27] Madry et al. (ICLR 2018); [28] HotFlip — Ebrahimi et al. (ACL 2018); [29] TextFooler — Jin et al. (AAAI 2020)** — adversarial training and the two text-attack generators used in our adversarial rounds (`03` §7.1).
 
 ---
 
@@ -364,7 +365,7 @@ _(PNG export of the Mermaid diagram above, regenerated 12 September 2026. The Me
 ### 7.5 The core technical pillars
 
 #### 1. Encoder Injection Classifier (Stage 1)
-Trained on synthetic MCP-shaped attacks, public attack corpora, and ~85% benign traffic rich in hard negatives; calibrated by temperature scaling; operating threshold chosen for FPR ≤ 0.5% on validation hard negatives. Details: [[03 - Fine-Tuning & Dataset Strategy]].
+Trained on synthetic MCP-shaped attacks, public attack corpora, and ~85% benign traffic rich in hard negatives; calibrated by temperature scaling; operating threshold chosen for FPR ≤ 0.5% on validation hard negatives; then hardened by two to three **adversarial training rounds** against attacks generated on its own checkpoints (`03` §7.1). Details: [[03 - Fine-Tuning & Dataset Strategy]].
 
 #### 2. Capability Pinning + Description Scan (Stage 1)
 SHA-256 over each tool's canonical JSON at first listing; re-checked on every listing and on `toolsListChanged`; any change withholds the tool and raises `SecurityTamperingError` until re-pinned explicitly. Descriptions and schema strings are also classified at listing time. **Known limitation**: trust-on-first-use — the base paper names the same limitation for ATTESTMCP.
@@ -405,7 +406,7 @@ E1 audit log + OTLP export with the spec's trace context; E2 Dockerfile / docker
 ### 7.7 What MCP-Shield does *not* claim
 
 - It is not "bulletproof". Every mechanism has a stated residual risk ([[06 - Fortified Solution & Defense Upgrades]]).
-- Bounded classifiers can be bypassed by adaptive attacks [16]; our weights are open. We report adaptive-set ASR and rely on defence in depth.
+- Bounded classifiers can be bypassed by adaptive attacks [16]; our weights are open. Adversarial training rounds raise the attacker's cost; they do not remove the class. We report adaptive-set ASR and rely on defence in depth.
 - Taint state catches verbatim and near-verbatim smuggling, not fully paraphrased intent; the principled fix is host-side control-flow separation (CaMeL [10]), which a proxy cannot impose.
 - Pinning is trust-on-first-review: quarantine puts a human in front of every new server, but cannot make that human infallible; legitimate server updates also trip the pin and need a guided re-pin.
 - Third-party OAuth-protected remote servers cannot be proxied transparently in Stage 1 — the spec binds tokens to the URL the host connects to; stdio servers, non-OAuth HTTP servers and servers you operate are covered, the OAuth proxy-server pattern is Stage 2.
@@ -441,6 +442,7 @@ _(PNG export of the Mermaid pipeline above, regenerated 12 September 2026 — re
 
 #### Phase 2 — Classifier fine-tuning & calibration
 - Fine-tune `microsoft/mdeberta-v3-base` (~86M backbone) → `mcp-shield-clf`; class-weighted cross-entropy; early stopping on recall at FPR = 0.5%; three seeds.
+- Adversarial rounds: attack the checkpoint white-box (gradient-guided substitutions, LLM paraphrase against the score, obfuscation transforms), keep attacks that still inject, add them with benign twins, retrain; two to three rounds, per-document FPR re-verified each round.
 - Temperature-scale on validation; select per-class thresholds for FPR ≤ 0.5%.
 - Export via `optimum` → ONNX → int8; publish on Hugging Face Hub with a model card.
 
@@ -489,6 +491,9 @@ Numbering matches [[05 - Literature Survey & Research Papers]], which carries fu
 16. **Fairoze, J., Garg, S., Lee, K. et al.** "Bypassing Prompt Guards in Production with Controlled-Release Prompting." arXiv:2510.01529, 2025.
 17. **Zhang, Z. et al.** "Agent-SafetyBench: Evaluating the Safety of LLM Agents." arXiv:2412.14470, 2024.
 18. **Lupinacci, M. et al.** "The Dark Side of LLMs: Agent-based Attacks for Complete Computer Takeover." arXiv:2507.06850, 2025.
+27. **Madry, A., Makelov, A., Schmidt, L., Tsipras, D. & Vladu, A.** "Towards Deep Learning Models Resistant to Adversarial Attacks." ICLR 2018. arXiv:1706.06083.
+28. **Ebrahimi, J., Rao, A., Lowd, D. & Dou, D.** "HotFlip: White-Box Adversarial Examples for Text Classification." ACL 2018. arXiv:1712.06751.
+29. **Jin, D., Jin, Z., Zhou, J. T. & Szolovits, P.** "Is BERT Really Robust? A Strong Baseline for Natural Language Attack on Text Classification and Entailment." AAAI 2020. arXiv:1907.11932.
 19. **Model Context Protocol.** Specification revision 2026-07-28, "Key Changes" changelog (SEP-2243, SEP-2322, SEP-2549, SEP-2567, SEP-2575, SEP-2577).
 20. **Model Context Protocol.** "Security Best Practices." Specification 2026-07-28.
 21. **Equixly.** "MCP Servers: The New Security Nightmare." Blog, 29 March 2025.

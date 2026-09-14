@@ -90,7 +90,7 @@ Full tier definitions, the canonical latency table, and error types: [[02 - Syst
 
 |Stage|Deliverables|Status|
 |:--|:--|:--|
-|**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (stdio servers, non-OAuth HTTP servers, self-operated servers) · Tier 1 policy gate (every string argument scanned) · Tier 2 cache/signature layer · Tier 3 encoder classifier (`mcp-shield-clf`, 86M, ONNX) with abstain band · untrusted-segment extractor · capability pinning + description scan + first-contact quarantine · session taint state with overlap check and probe detection · MRTR provenance banner · `mcp-shield doctor` and `mcp-shield install` · benchmark harness on held-out suites with a CI CPU-only baseline · minimal dashboard (traffic log, flagged-request inspector, pin viewer) · PyPI release|In progress|
+|**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (stdio servers, non-OAuth HTTP servers, self-operated servers) · Tier 1 policy gate (every string argument scanned) · Tier 2 cache/signature layer · Tier 3 encoder classifier (`mcp-shield-clf`, 86M, ONNX; adversarially trained) with abstain band · untrusted-segment extractor · capability pinning + description scan + first-contact quarantine · session taint state with overlap check and probe detection · MRTR provenance banner · `mcp-shield doctor` and `mcp-shield install` · benchmark harness on held-out suites with a CI CPU-only baseline · minimal dashboard (traffic log, flagged-request inspector, pin viewer) · PyPI release|In progress|
 |**Stage 1E — Enterprise Basics (this semester, built last)**|Structured JSONL audit log + OTLP export with `_meta` trace-context · Dockerfile / docker-compose + plain Kubernetes sidecar manifest · OAuth 2.1 bearer validation (JWKS, `iss`/`aud`/`exp`) + basic policy map (subject or role → servers, tools, maximum privilege class) · per-client config sections|Scheduled as Phase 6; cut first if validation runs late|
 |**Stage 2 (next semester)**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama, consent-gated; or opt-in cloud) · MRTR-based human approval · full dashboard (topology map, tool hub, model switcher)|Planned|
 |**Future — Enterprise Advanced**|Envoy / service-mesh filter · eBPF interception · SIEM connectors (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID) · gVisor sandboxing · dashboard SSO · central policy server|Roadmap only|
@@ -102,7 +102,7 @@ Anything in a later stage is described in this vault as a design, not as a deliv
 |Weeks|Phase|Deliverable|Split|
 |:--|:--|:--|:--|
 |1–2|Phase 1 — Dataset|Minimum viable dataset (≥ 20k segments), global dedup + grouped split, held-out suites frozen|2 on data · 2 on proxy skeleton|
-|3–4|Phase 2 — Classifier|`mcp-shield-clf` fine-tuned, calibrated (block + abstain thresholds), ONNX-exported, model card|2 on model · 2 on Tier 1/2|
+|3–4|Phase 2 — Classifier|`mcp-shield-clf` fine-tuned with 2–3 adversarial rounds, calibrated (block + abstain thresholds), ONNX-exported, model card|2 on model · 2 on Tier 1/2|
 |5–7|Phase 3 — Proxy + cascade|HTTP + stdio proxy, extractor, Tier 1–3 wired, `doctor`, `install`|all|
 |8–9|Phase 4 — Pin, scan, taint, dashboard|Pin store + quarantine, taint state + probe detection, minimal dashboard|2 + 2|
 |10–11|Phase 5 — Validation|Held-out + adaptive benchmarks, CI CPU baseline, PyPI release|all|
