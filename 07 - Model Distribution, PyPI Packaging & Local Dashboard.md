@@ -35,7 +35,7 @@ Publishing to PyPI is free. Package name `mcp-shield-llm`, import name `mcp_shie
 mcp-shield-llm/
 ├── mcp_shield/
 │   ├── __init__.py            # shield, SecurityConfig, error types
-│   ├── cli.py                 # doctor · proxy · dashboard · pull-model · pin · benchmark
+│   ├── cli.py                 # doctor · install · rules · proxy · dashboard · pull-model · pin · benchmark
 │   ├── proxy/                 # Mode A (Stage 1)
 │   │   ├── http.py            #   Streamable HTTP reverse proxy (ASGI)
 │   │   └── stdio.py           #   stdio wrapper for local servers
@@ -139,6 +139,12 @@ mcp-shield doctor
 # OAuth-protected remote servers are reported, not rewritten — see 02 §1
 mcp-shield install --host claude-desktop
 mcp-shield install --host cursor
+# Also insert the host prompt rules where the host exposes an instructions file (Claude Desktop project, Cursor rules, custom agent)
+mcp-shield install --host cursor --with-rules
+
+# Print the host prompt rules (Host Prompt Rules.md, rule IDs H-1…) to paste into any host's system instructions
+mcp-shield rules --print
+mcp-shield rules --print --short   # the compact form for hosts with tight instruction limits
 
 # Run the proxy (Stage 1) — HTTP upstream or wrapped stdio server
 mcp-shield proxy --listen 127.0.0.1:8800 --upstream https://tools.example.com/mcp

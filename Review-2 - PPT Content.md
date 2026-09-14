@@ -220,7 +220,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 - **Tier 1 — Structural & Policy Gate (<1 ms)**: header allowlist, header ↔ body check, schema, every string argument scanned; typed fields block, others force `strict`
 - **Tier 2 — Cache & Signature Layer (1–5 ms)**: exact-hash fast-accept scoped by `ttlMs`, known-bad fast-reject, DoS guard — never a gate
 - **Tier 3 — Encoder Injection Classifier**: one 86M model, four classes (`benign`, `indirect_injection`, `command_injection`, `description_poisoning`); ≤40 ms GPU / ≤200 ms CPU per ≤512-token segment; abstain band
-- **Around it**: session taint state + overlap check + probe detection; capability pinning + description scan + first-contact quarantine; MRTR provenance banner
+- **Around it**: session taint state + overlap check + probe detection; capability pinning + description scan + first-contact quarantine; MRTR provenance banner; Spotlighting markers on forwarded text + a versioned host prompt rule set (`H-1`–`H-23`) as an advisory layer below the checks
 - **Off the hot path (Stage 2)**: Tier 4 explainer SLM → dashboard
 
 ### Slide iv.3 — Why these numbers, and what they mean
@@ -268,6 +268,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 | `cascade/tier3_classifier.py` | ONNX session (CPU/CUDA/DirectML/CoreML) in a worker thread; chunking, batching, per-document calibration, block + abstain thresholds; fail-closed | 1 |
 | `taint.py` | Session store (`clientInfo` + peer + `traceparent`), decaying taint records, overlap check, probe counters | 1 |
 | `pinning.py` | SHA-256 pin store (SQLite), quarantine state, description-scan hook, known manifests | 1 |
+| `spotlight.py`, `host_rules.md` | Wraps forwarded untrusted text in provenance markers; the versioned host rule set emitted by `mcp-shield rules --print` / inserted by `install --with-rules` | 1 |
 | `dashboard/` | FastAPI + WebSocket; traffic log, flagged inspector, pin viewer; token on every endpoint | 1 (min) / 2 (full) |
 | `audit.py`, `auth.py` | JSONL audit (raw local, redacted, 7-day retention) + OTLP export of hashes/verdicts; JWKS validation + policy map | 1E |
 | `state_tracker.py`, `decorator.py`, `explainer/` | Drift + loop breaker; `@shield`; Tier 4 providers | 2 |

@@ -388,7 +388,10 @@ A server with no pin yet exposes only `read`-class tools and runs under `strict`
 #### 8. Probe Detection and the Abstain Band (Stage 1)
 A streak of blocks in one session (default 3) escalates it to `strict`; a longer streak (default 10) quarantines the source until a human looks. Classifier scores in the abstain band pass under `strict` and are queued for review. Together they deny the cheap online feedback loop an adaptive attacker needs and stop distribution shift from silently lowering the guard.
 
-#### 9. Enterprise Basics (Stage 1E, built last)
+#### 9. Spotlighting Markers + Host Prompt Rules (Stage 1, advisory layer)
+Forwarded tool text is wrapped in `[MCP-Shield: untrusted data from server "…"]` markers (Spotlighting [11]) so the host's own "tool output is data" rule has unambiguous boundaries; `mcp-shield rules --print` emits a versioned instruction set (`H-1`–`H-23`, [[Host Prompt Rules]]) for hosts whose instructions the user controls. Ranked below the classifier, taint and pinning — an instruction layer is what an injection tries to override — so it is free defence in depth, never the primary control.
+
+#### 10. Enterprise Basics (Stage 1E, built last)
 E1 audit log + OTLP export with the spec's trace context; E2 Dockerfile / docker-compose + plain Kubernetes sidecar manifest; E3 OAuth 2.1 bearer validation (JWKS, `iss`/`aud`/`exp`) + basic policy map (subject or role → servers, tools, maximum privilege); E4 per-client config. Cut-line rule: dropped E4 → E3 → E2 if Phase 5 runs late.
 
 ### 7.6 Feature comparison
