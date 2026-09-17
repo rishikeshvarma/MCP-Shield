@@ -266,7 +266,7 @@ Every block is logged with the tier, class, probability, and — locally only, r
 |**Dashboard + audit log (the user)**|Everything: tier, class, calibrated probability, the segment (locally, redacted, retention-limited), the reference ID.|
 |**Server**|Nothing. A blocked server → host result is consumed; a blocked host → server call is never forwarded.|
 
-The stub is the same for all four classes so that the *kind* of block is not inferable from the message either. In decorator mode the exception is raised inside the server author's own process with full detail; what the server returns to the host should be the same opaque stub. The trade-off is accepted knowingly: a legitimate user also cannot learn *why* from the chat — they read it in the dashboard, which is the one place a compromised model cannot reach.
+The stub is the same for all four classes so that the *kind* of block is not inferable from the message either. **The reference ID is a random 64-bit value generated locally** — never sequential (it would count blocks), never structured (it would name the tier or class), and never derived from the content or verdict (an attacker could hash candidate payloads and confirm which one was blocked). It exists only in the user's local audit log and dashboard, so it is not searchable anywhere; open source publishes the code, not the user's data. In decorator mode the exception is raised inside the server author's own process with full detail; what the server returns to the host should be the same opaque stub. The trade-off is accepted knowingly: a legitimate user also cannot learn *why* from the chat — they read it in the dashboard, which is the one place a compromised model cannot reach.
 
 ---
 
