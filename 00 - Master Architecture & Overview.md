@@ -127,3 +127,4 @@ The calendar is indicative and will be re-cut against the real semester dates; t
 - [[README.md]] (GitHub Repository Documentation)
 - [[Review-2 - PPT Content]] (Review-2 deck content, 25 slides)
 - [[Host Prompt Rules]] (the instruction layer for the host, rule IDs H-1…, versioned)
+- [[08 - Build Roadmap - Stage 2 & Enterprise]] (step-by-step build plan for Stage 2 and the Enterprise roadmap)

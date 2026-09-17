@@ -245,6 +245,8 @@ For reference only: the base paper's own defence, **ATTESTMCP** — capability a
 |**Stage 2**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama / opt-in cloud) · MRTR human approval · full dashboard · OAuth proxy-server pattern for third-party OAuth-protected remote servers · gated + rotated weight distribution (option)|
 |**Future — Enterprise Advanced**|Envoy / service-mesh filter · eBPF interception · SIEM connectors (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID) · gVisor sandboxed execution · dashboard SSO · central policy server|
 
+The step-by-step build plan for Stage 2 and the enterprise items — goals, prerequisites, exit tests, effort — is in [`08 - Build Roadmap - Stage 2 & Enterprise.md`](08%20-%20Build%20Roadmap%20-%20Stage%202%20%26%20Enterprise.md).
+
 ---
 
 ## ⚠️ Known Limitations

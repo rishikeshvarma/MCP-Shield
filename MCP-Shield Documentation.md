@@ -140,3 +140,5 @@ Design and build **MCP-Shield**: a developer-friendly, fast (sub-50 ms target on
     - Slide-by-slide content for the Review-2 deck: 25 slides in the department's seven components, speaker notes, and four exported figures (`Review-2 - Fig 1…4`).
 10. **[[Host Prompt Rules]]**
     - The versioned instruction layer for the host (rules `H-1`–`H-24`, short form, changelog) that `mcp-shield rules --print` emits and `install --with-rules` inserts.
+11. **[[08 - Build Roadmap - Stage 2 & Enterprise]]**
+    - Step-by-step build plan for Stage 2 (S2-1 … S2-7) and the Enterprise roadmap (F-1 … F-6): goals, prerequisites, exit tests, effort, suggested owners, and what can be shown at each review.
