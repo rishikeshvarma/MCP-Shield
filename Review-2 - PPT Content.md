@@ -220,7 +220,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 - **Tier 1 — Structural & Policy Gate (<1 ms)**: header allowlist, header ↔ body check, schema, every string argument scanned; typed fields block, others force `strict`
 - **Tier 2 — Cache & Signature Layer (1–5 ms)**: exact-hash fast-accept scoped by `ttlMs`, known-bad fast-reject, DoS guard — never a gate
 - **Tier 3 — Encoder Injection Classifier**: one 86M model, four classes (`benign`, `indirect_injection`, `command_injection`, `description_poisoning`); ≤40 ms GPU / ≤200 ms CPU per ≤512-token segment; abstain band
-- **Around it**: session taint state + overlap check + probe detection; capability pinning + description scan + first-contact quarantine; MRTR provenance banner; Spotlighting markers on forwarded text + a versioned host prompt rule set (`H-1`–`H-23`) as an advisory layer below the checks
+- **Around it**: session taint state + overlap check + probe detection; capability pinning + description scan + first-contact quarantine; MRTR provenance banner; Spotlighting markers on forwarded text + a versioned host prompt rule set (`H-1`–`H-24`) as an advisory layer below the checks
 - **Off the hot path (Stage 2)**: Tier 4 explainer SLM → dashboard
 
 ### Slide iv.3 — Why these numbers, and what they mean
@@ -248,6 +248,8 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 | Tier 2/3 detection (signatures, DoS guard, classifier) | 1 | `SecurityInjectionError` (class + probability) |
 | Session taint + probe detection | 1 (approval flow 2) | `SecurityTaintViolationError` |
 | Pinning + scan + quarantine | 1 | `SecurityTamperingError` |
+
+- Error views by audience: the **host** receives one opaque stub for all four (`Request blocked by MCP-Shield policy (ref …)`); the **dashboard / audit log** get tier, class, probability and segment; the **server** gets nothing. A block is never an oracle — the design does not rely on being hidden, only on not being informative.
 
 ---
 

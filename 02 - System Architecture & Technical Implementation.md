@@ -34,12 +34,20 @@ mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
 
 The host is pointed at the proxy instead of the server. From the host's point of view nothing changes; from the server's point of view nothing changes.
 
-**Transport notes.** In HTTP mode the proxy is an ASGI reverse proxy and forwards the spec's `Mcp-Method` / `Mcp-Name` headers unchanged. In **stdio mode there are no HTTP headers**: Tier 1 applies the allowlist to the parsed body only, and the header ↔ body check does not apply. Binary content (`blob` fields) is hashed for the taint buffer but not classified — only text is. Images returned by tools can carry *visual* prompt injection that a text classifier cannot see; that is out of scope and stated as a limitation.
+**Transport notes.** In HTTP mode the proxy is an ASGI reverse proxy and forwards the spec's `Mcp-Method` / `Mcp-Name` headers unchanged. It is **transparent on the server side**: the host's headers and `_meta` (including `clientInfo`) are forwarded as-is, and the proxy adds nothing of its own — no `Via`, no `X-Forwarded-*`, no identifying `User-Agent` or `Server` header — so at the protocol level a server cannot distinguish the proxy from the host. In **stdio mode there are no HTTP headers**: Tier 1 applies the allowlist to the parsed body only, and the header ↔ body check does not apply. Binary content (`blob` fields) is hashed for the taint buffer but not classified — only text is. Images returned by tools can carry *visual* prompt injection that a text classifier cannot see; that is out of scope and stated as a limitation.
 
 **The proxy's own attack surface.** The spec's Security Best Practices name two risks that apply directly to this architecture, mitigated as follows:
 
 - *Local HTTP service reachable from a browser (DNS rebinding / cross-site POST).* The listener binds to `127.0.0.1`, validates the `Host` header against its own bound address, rejects requests whose `Origin` header is not on a configured allowlist (empty by default — native MCP hosts send none; a browser-based host adds its origin), and accepts an optional bearer token configured in the host's MCP settings.
 - *"stdio transport security in proxy scenarios"* — a proxy that spawns stdio servers is an escalation path if an attacker can tell it what to spawn. The command the proxy spawns comes **only** from the CLI invocation or the on-disk `mcp-shield.toml`; no network endpoint and no dashboard action can start a process. Registering a stdio server through the Stage 2 dashboard writes the config and requires confirmation in the terminal that launched the proxy, with the full command shown untruncated.
+
+**What an attacker can observe (no oracle, by design).** MCP-Shield is open source, so an attacker must be assumed to know it exists and how it works; the design never relies on being hidden. What it does deny is a *feedback signal* — an oracle — from a block:
+
+- **The author of an injected payload** (a poisoned page, issue, document or description) is not in the conversation and receives nothing. The only signal available to them is whether the action they hoped for happens; a block is indistinguishable from the model ignoring the payload or the page never being read.
+- **A malicious server operator** sees only the requests that reach the server. A blocked server → host result is consumed by the proxy and answered to the *host*, never to the server; a blocked host → server call is never forwarded. A blocked MRTR `input_required` result simply never receives `inputResponses`. The server observes absence — and, under probe detection, a pattern of absence — but no message. Timing is not a practical channel: the proxy's tens of milliseconds are buried under seconds of model generation.
+- **A compromised host LLM** (an injection that already succeeded) sees what the host sees: the Spotlighting markers, the provenance banners, and the block errors. It is *supposed* to see the markers — the host is what is being protected. The block error is therefore deliberately **opaque** (§8): a generic code and a reference ID, never the tier, class, probability or offending segment, so a compromised model cannot relay a precise verdict to the attacker through an allowed read-class call (e.g. a web search for the error text). Host rule H-24 forbids relaying MCP-Shield's messages outward at all.
+
+A malicious *stdio* server can see `mcp-shield` in its parent process — and already runs with the user's privileges, so it is out of scope: the threat model concerns the content servers return, not servers that are themselves malware.
 
 **Which servers the proxy can front.** The authorization spec binds tokens to the server URL the client connects to — clients MUST send `resource` = the MCP server's canonical URI, and *"MCP servers MUST only accept tokens that are valid for use with their own resources. MCP servers MUST NOT accept or transit any other tokens."* A proxy at `127.0.0.1:8800` in front of a third-party OAuth-protected remote server therefore cannot be transparent: the token the host obtains is bound to the proxy, and the upstream must reject it. Stage 1 HTTP mode consequently covers three cases, all of which work cleanly:
 
@@ -136,7 +144,7 @@ Deterministic checks. No model.
 4. **Argument policy — every string argument scanned, typed fields enforced**: every string argument is scanned for shell metacharacters (`;`, `|`, `&&`, `` ` ``, `$(`), path traversal (`../`, absolute paths outside the root) and URL smuggling. For fields whose schema or name marks them as path-, command-, or URL-like a hit is a **block** (plus path canonicalisation + root allowlist, and scheme/host allowlists for fetch-type parameters). For any *other* string field a hit does not block on its own — the call is annotated and, if the target tool is `execute` or `egress`, it proceeds only under `strict` policy (approval required in Stage 2). This closes the gap where a server builds a command from a field nobody flagged, without turning every code snippet passed to a tool into a false positive. **Shell-executing tools** (`run_shell`, `bash`, `exec`) legitimately use those operators; for them the per-tool `mode = "shell"` disables the operator block and instead runs *every* call under `strict` policy (approval in Stage 2) with taint overlap enforced — the operators are not the attack, tainted content inside them is.
 5. **Per-client tool allowlist** and per-tool privilege class (`read` / `write` / `execute` / `egress`). The class is the *highest* of: the developer's config, a name heuristic (`execute_*`, `run_*`, `shell*` → `execute`; `send_*`, `post_*`, `fetch_*` → `egress`; `write_*`, `delete_*`, `update_*` → `write`; `get_*`, `list_*`, `search_*`, `read_*`, `query_*`, `find_*` → `read`), and the server's tool annotations (`destructiveHint`, `openWorldHint`). Annotations can only *raise* a class, never lower it — the spec requires clients to treat annotations as untrusted unless the server is trusted, and otherwise a malicious server would mark `execute_shell` as read-only to escape taint enforcement. A tool matched by nothing defaults to `write` (fail closed).
 
-Raises **`SecurityPolicyError`**.
+Raises **`SecurityPolicyError`** (details logged; the host receives only the opaque error of §8).
 
 ### Tier 2 — Cache & Signature Layer (1–5ms)
 
@@ -164,7 +172,7 @@ Embeddings — for near-duplicate rejection and for taint records — are the Ti
 
 - **Failure mode**: if the model file is missing or corrupt, or inference raises, server → host content is **blocked (fail-closed)** and the event is logged loudly; a `--fail-open` flag exists for development only and is never the default.
 
-Raises **`SecurityInjectionError`** with the class and probability.
+Raises **`SecurityInjectionError`** with the class and probability — recorded in the audit log and dashboard; the host receives only the opaque error of §8.
 
 ### Tier 4 — Explainer SLM (Stage 2, optional, off the hot path)
 
@@ -244,11 +252,21 @@ The same fields live in `mcp-shield.toml` for the proxy. There is no separate `s
 |Error|Raised by|Meaning|
 |:--|:--|:--|
 |`SecurityPolicyError`|Tier 1|Header/body mismatch, disallowed tool, argument policy violation, schema violation|
-|`SecurityInjectionError`|Tier 2/3|Known-bad signature, DoS guard, or classifier verdict ≠ `benign` (carries class + probability)|
+|`SecurityInjectionError`|Tier 2/3|Known-bad signature, DoS guard, or classifier verdict ≠ `benign` (class + probability recorded internally)|
 |`SecurityTaintViolationError`|Taint engine|High-privilege call whose arguments overlap tainted content, or any such call under `strict` policy|
 |`SecurityTamperingError`|Pin store|Tool manifest changed after pinning|
 
 Every block is logged with the tier, class, probability, and — locally only, redacted for known secret patterns, and retention-limited — the offending segment, and shown in the dashboard's flagged-request inspector (`07`, §3). Exported audit records carry hashes and verdicts, never raw segments, unless raw export is explicitly enabled.
+
+**Error views by audience.** The four error classes above carry full detail *inside the proxy process* and into the audit log and dashboard. What crosses the wire is different for each party:
+
+|Audience|What they receive|
+|:--|:--|
+|**Host / LLM**|A single opaque JSON-RPC error: `{"code": -32000, "message": "Request blocked by MCP-Shield policy (ref 7f3a92c1)"}`. No tier, class, probability, rule name or offending segment. The reference ID matches the dashboard entry.|
+|**Dashboard + audit log (the user)**|Everything: tier, class, calibrated probability, the segment (locally, redacted, retention-limited), the reference ID.|
+|**Server**|Nothing. A blocked server → host result is consumed; a blocked host → server call is never forwarded.|
+
+The stub is the same for all four classes so that the *kind* of block is not inferable from the message either. In decorator mode the exception is raised inside the server author's own process with full detail; what the server returns to the host should be the same opaque stub. The trade-off is accepted knowingly: a legitimate user also cannot learn *why* from the chat — they read it in the dashboard, which is the one place a compromised model cannot reach.
 
 ---
 

@@ -47,6 +47,7 @@ Spec revision **`2026-07-28`** made MCP stateless: protocol-level sessions and t
 - 📌 **Capability pinning + description scan + quarantine**: SHA-256 pins per tool catch rug-pulls; the classifier reads descriptions at `tools/list` time to catch first-contact poisoning; a server with no pin yet starts **quarantined** — dangerous tools withheld, results under strict taint — until you review and accept its manifest.
 - 🧭 **One-command coverage**: `mcp-shield install --host claude-desktop` routes every stdio and non-OAuth HTTP server in your host's MCP config through the proxy (backup kept, `uninstall` restores). OAuth-protected remote servers need the Stage 2 proxy-server pattern (see [Known Limitations](#-known-limitations)).
 - 🔦 **Spotlighting + host rules**: forwarded tool text is wrapped in `[MCP-Shield: untrusted data …]` markers so the host can see exactly what is data, and `mcp-shield rules --print` gives you a versioned instruction set (`H-1…`) for your host's system prompt — an advisory layer that sits *below* the classifier, never in place of it.
+- 🕶️ **No oracle**: a block sends nothing to the server and only an opaque `Request blocked by MCP-Shield policy (ref …)` to the host — no tier, class or probability. The reason lives in your dashboard, matched by the reference. To the injection's author, a block is indistinguishable from the model ignoring it; the proxy adds no identifying headers, so a server cannot tell it from the host.
 - 🏢 **Enterprise basics (Stage 1E)**: JSONL audit log with OTLP export, Docker / Kubernetes sidecar manifest, OAuth 2.1 bearer validation with a basic policy map.
 - 🧬 **Session taint state + probe detection**: untrusted content is remembered outside the LLM (decaying, 15-minute half-life); later `write` / `execute` / `egress` calls whose arguments overlap tainted content are blocked (or, Stage 2, sent to you for approval via MRTR). A streak of blocks escalates the session to `strict` and then quarantines the source, so an attacker gets no cheap feedback loop.
 - 🛑 **Argument policy for command injection**: every string argument is scanned; a hit in a path-, command- or URL-typed field blocks (canonicalisation + root allowlists, scheme/host allowlists), a hit anywhere else forces `strict` policy for that call; shell-executing tools get `mode = "shell"` (operators allowed, every call strict). The realistic defence for the 43% of servers Equixly found vulnerable.
@@ -125,7 +126,7 @@ Point your host's MCP config at `http://127.0.0.1:8800` (or at the wrapped comma
 ### 4. Give your host the rules (optional, advisory)
 
 ```bash
-# Print the host prompt rules (H-1…H-23) to paste into Claude Desktop project instructions, Cursor rules, or your agent's system prompt
+# Print the host prompt rules (H-1…H-24) to paste into Claude Desktop project instructions, Cursor rules, or your agent's system prompt
 mcp-shield rules --print
 mcp-shield rules --print --short     # compact form for hosts with tight instruction limits
 
@@ -155,6 +156,8 @@ payload = {
     "params": {"name": "read_file", "arguments": {"path": "/workspace/report.pdf; cat /etc/passwd"}},
 }
 # -> raises mcp_shield.SecurityPolicyError (Tier 1: shell metacharacter in a path-typed field)
+#    logged with that reason; what the host receives is only:
+#    {"code": -32000, "message": "Request blocked by MCP-Shield policy (ref 7f3a92c1)"}
 ```
 
 ---
@@ -168,7 +171,7 @@ mcp-shield dashboard --port 8501
 Open the one-time URL the command prints (`http://127.0.0.1:8501/?token=…`). The dashboard binds to `127.0.0.1` only and requires the token on **every** endpoint, including from localhost, with `Origin`/`Host` validation and no permissive CORS.
 
 - 📊 **Live traffic & latency stream** (Stage 1): per-tier timings for every message.
-- 🔍 **Flagged-request inspector** (Stage 1): full message (kept locally only, redacted for secret patterns, 7-day retention), tier, class, calibrated probability; *Allow this exact content* (SHA-256, scoped to server + tool, with TTL — never a similarity neighbourhood) or *Report false positive* (feeds the next training round).
+- 🔍 **Flagged-request inspector** (Stage 1): full message (kept locally only, redacted for secret patterns, 7-day retention), tier, class, calibrated probability; *Allow this exact content* (SHA-256, scoped to server + tool, with TTL — never a similarity neighbourhood) or *Report false positive* (feeds the next training round). Each entry carries the reference ID from the host's opaque error.
 - 📌 **Pin viewer** (Stage 1): per-server tool fingerprints, diffs on change, explicit re-pin.
 - 🕸️ **Topology map, tool hub, model settings** (Stage 2).
 
@@ -250,6 +253,7 @@ For reference only: the base paper's own defence, **ATTESTMCP** — capability a
 - **Bounded classifiers can be bypassed by adaptive attacks.** Controlled-release prompting (Fairoze et al., 2025) and distribution shift (Fomin et al., 2026) are real; our weights are open, so an attacker can optimise against them offline. We report adaptive-set ASR separately and rely on defence in depth (taint state, pinning, argument policy), not the classifier alone. Online probing is throttled — a streak of blocks escalates the session and then quarantines the source — and an abstain band raises the guard when the classifier is unsure, but offline optimisation against open weights remains possible. The classifier is adversarially trained — attacks generated against its own checkpoints are added to training for two to three rounds — which raises the cost of such an attack without removing the class.
 - **Session taint catches verbatim and near-verbatim smuggling, not fully paraphrased intent.** That is why the classifier runs *before* content reaches the host; the principled fix is host-side control-flow separation (CaMeL), which a proxy cannot impose.
 - **The host prompt rules are advice, not enforcement.** An injection is designed to override instructions; Spotlighting markers can be forged inside data (they mark *untrust* only, so a forged one confers nothing). That is why the rules rank below the proxy's own controls.
+- **MCP-Shield is not hidden, and does not rely on being hidden.** The code is public, so assume an attacker knows it is there; a compromised host sees the markers by design. What the design guarantees instead is that a block is not an oracle: no message to the server, an opaque reference to the host, the reason only in the dashboard, and repeated blocks escalate (probe detection).
 - **Latency scales with content length.** The latency targets are per ≤512-token segment; very large tool results are chunked and batched, and their p95 is reported separately.
 - **The proxy protects only the servers routed through it.** `mcp-shield install` routes every stdio and non-OAuth HTTP server in the host config through the proxy and `doctor` warns about any added later, but a server the host reaches directly is invisible. In stdio mode there are no `Mcp-*` headers, so Tier 1 works from the parsed body alone.
 - **The proxy is itself a local service and is hardened as one.** Following the spec's Security Best Practices, it binds to `127.0.0.1`, validates `Host`, rejects `Origin` headers not on its allowlist, and never spawns a process from a network or dashboard request — stdio commands come only from the CLI or the config file, confirmed in the terminal.
