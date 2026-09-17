@@ -19,8 +19,8 @@
      Semantic LLM Firewall for Model Context Protocol in Multi-Agent Networks
      (Registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
 
-  An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety & Real-Time
-                      Indirect Prompt Injection Defense
+   An Inline Local Firewall for MCP Traffic: Real-Time Defence Against Indirect
+      Prompt Injection, Tool-Description Poisoning and Command Injection
 
 ----------------------------------------------------------------------------------------
  Base Paper: Breaking the Protocol: Security Analysis of the Model Context Protocol
@@ -297,7 +297,7 @@ MCP-Shield is a developer-first semantic firewall delivered as a Python package.
 ```bash
 pip install mcp-shield-llm
 mcp-shield doctor                                    # detect OS / accelerator, download the ~300 MB classifier, self-test
-mcp-shield proxy --listen 127.0.0.1:8800 --upstream https://tools.example.com/mcp
+mcp-shield proxy --listen 127.0.0.1:8800 --upstream http://localhost:3000/mcp   # non-OAuth HTTP server, or one you operate
 mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
 ```
 
@@ -332,22 +332,27 @@ graph TD
     Proxy <-->|"JSON-RPC 2.0"| Servers["MCP Servers"]
 
     subgraph Cascade["Inside the proxy — per message (end-to-end p95 target: <50 ms GPU / <250 ms CPU)"]
-        Ext["Untrusted-Segment Extractor (no model)"] --> T1["Tier 1: Structural & Policy Gate (<1 ms)"]
+        Ext["Untrusted-Segment Extractor (normalises text; no model)"] --> T1["Tier 1: Structural & Policy Gate (<1 ms)"]
         T1 -->|"Policy violation"| Deny1["BLOCK: SecurityPolicyError"]
-        T1 -->|"No untrusted free text"| Pass["ALLOW / Forward"]
+        T1 -->|"No untrusted free text"| Pass["ALLOW"]
         T1 -->|"Untrusted free text"| T2["Tier 2: Cache & Signature Layer (1–5 ms)"]
-        T2 -->|"Already cleared"| Pass
+        T2 -->|"Exact hash already cleared"| Pass
         T2 -->|"Known-bad / DoS guard"| Deny2["BLOCK: SecurityInjectionError"]
-        T2 -->|"New content"| T3["Tier 3: Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per segment)"]
+        T2 -->|"New content"| T3["Tier 3: Encoder Injection Classifier (86M, adversarially trained; ≤40 ms GPU / ≤200 ms CPU per segment)"]
         T3 -->|"benign"| Pass
+        T3 -->|"abstain band"| Abst["ALLOW under strict policy + queue for review"]
         T3 -->|"attack class"| Deny2
     end
 
-    Pass --> Taint["Session Taint State"]
+    Pass --> Taint["Session Taint State + probe detection"]
+    Abst --> Taint
     Taint -->|"high-privilege call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
     Taint --> Pin["Capability Pin Store + Description Scan"]
+    Pin -->|"new server, not yet reviewed"| Quar["QUARANTINE: read-class tools only, strict taint"]
     Pin -->|"manifest changed / description flagged"| Deny4["BLOCK: SecurityTamperingError"]
-    Pin --> Out["Forward"]
+    Pin --> Spot["Spotlighting markers on forwarded text"]
+    Quar --> Spot
+    Spot --> Out["Forward"]
     Deny2 -.->|"Stage 2, off the hot path"| T4["Tier 4: Explainer SLM → dashboard"]
 ```
 
@@ -461,7 +466,7 @@ _(PNG export of the Mermaid pipeline above, regenerated 12 September 2026 — re
 #### Phase 5 — Validation & release
 - Run the held-out harness: ASR and utility on AgentDojo, ASR on MCPSecBench, adaptive red-team ASR, FPR on benign replay, p50/p95 latency on CPU and GPU, Prompt Guard 2 baseline; leave-one-source-out gaps. Latency is additionally measured on a standard 4-vCPU GitHub Actions runner as the reproducible CPU-only baseline.
 - Publish results with seeds and error bars; release to PyPI.
-- Delivery Stage 2 (decorator, state tracker, explainer, MRTR approval, full dashboard) begins only after these Stage 1 numbers are published.
+- Delivery Stage 2 (decorator, state tracker, explainer, MRTR approval, full dashboard, OAuth proxy-server pattern for third-party remote servers) begins only after these Stage 1 numbers are published.
 
 #### Phase 6 — Enterprise basics (Stage 1E, cut-line protected)
 - E1: JSONL audit log + OTLP export via the OpenTelemetry SDK, propagating the spec's `_meta` trace context.

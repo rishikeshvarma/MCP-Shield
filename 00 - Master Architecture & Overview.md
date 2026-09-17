@@ -1,6 +1,6 @@
 # MCP-Shield: Semantic LLM Firewall for Model Context Protocol in Agent Networks (registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
 
-> **Project Title**: MCP-Shield: An Autonomous Inline Multi-Agent Firewall for Protocol-Level Safety and Real-Time Indirect Prompt Injection Defense (registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
+> **Project Title**: MCP-Shield: Semantic LLM Firewall for Model Context Protocol in Agent Networks — an inline local firewall for MCP traffic: real-time defence against indirect prompt injection, tool-description poisoning and command injection (registered title: MCP-SHIELD: SEMANTIC LLM FIREWALL FOR MODEL CONTEXT PROTOCOL IN MULTI AGENT NETWORKS)
 > **Domain**: Agentic AI, Protocol-Level AI Safety, Inter-Agent Access Control, Real-Time Injection Defense
 > **Target Package**: `pip install mcp-shield-llm` — primary interface `mcp-shield proxy`; secondary `@shield` decorator
 > **Target SLA**: End-to-end p95 decision latency **< 50 ms with a GPU, < 250 ms CPU-only** (targets, pending benchmark — canonical numbers in [[02 - System Architecture & Technical Implementation]])
@@ -71,11 +71,12 @@ graph TD
     Proxy <-->|"JSON-RPC 2.0"| Servers["MCP Servers (filesystem, GitHub, Postgres, web search, ...)"]
 
     subgraph Inside["Inside the proxy — per message"]
-        Ext["Untrusted-Segment Extractor"] --> T1["Tier 1: Structural & Policy Gate (<1ms)"]
+        Ext["Untrusted-Segment Extractor (normalises text; no model)"] --> T1["Tier 1: Structural & Policy Gate (<1ms)"]
         T1 --> T2["Tier 2: Cache & Signature Layer (1–5ms)"]
-        T2 --> T3["Tier 3: Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per segment)"]
-        T3 --> Taint["Session Taint State"]
-        Taint --> Pin["Capability Pin Store + Description Scan"]
+        T2 --> T3["Tier 3: Encoder Injection Classifier (86M, adversarially trained; ≤40 ms GPU / ≤200 ms CPU per segment; abstain band)"]
+        T3 --> Taint["Session Taint State + probe detection"]
+        Taint --> Pin["Capability Pin Store + Description Scan + first-contact quarantine"]
+        Pin --> Spot["Spotlighting markers on forwarded text"]
     end
 
     Proxy --- Inside
@@ -92,7 +93,7 @@ Full tier definitions, the canonical latency table, and error types: [[02 - Syst
 |:--|:--|:--|
 |**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (stdio servers, non-OAuth HTTP servers, self-operated servers) · Tier 1 policy gate (every string argument scanned) · Tier 2 cache/signature layer · Tier 3 encoder classifier (`mcp-shield-clf`, 86M, ONNX; adversarially trained) with abstain band · untrusted-segment extractor · capability pinning + description scan + first-contact quarantine · session taint state with overlap check and probe detection · MRTR provenance banner · Spotlighting markers + host prompt rules · `mcp-shield doctor` and `mcp-shield install` · benchmark harness on held-out suites with a CI CPU-only baseline · minimal dashboard (traffic log, flagged-request inspector, pin viewer) · PyPI release|In progress|
 |**Stage 1E — Enterprise Basics (this semester, built last)**|Structured JSONL audit log + OTLP export with `_meta` trace-context · Dockerfile / docker-compose + plain Kubernetes sidecar manifest · OAuth 2.1 bearer validation (JWKS, `iss`/`aud`/`exp`) + basic policy map (subject or role → servers, tools, maximum privilege class) · per-client config sections|Scheduled as Phase 6; cut first if validation runs late|
-|**Stage 2 (next semester)**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama, consent-gated; or opt-in cloud) · MRTR-based human approval · full dashboard (topology map, tool hub, model switcher)|Planned|
+|**Stage 2 (next semester)**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama, consent-gated; or opt-in cloud) · MRTR-based human approval · full dashboard (topology map, tool hub, model switcher) · OAuth proxy-server pattern for third-party OAuth-protected remote servers · gated + rotated weight distribution (option)|Planned|
 |**Future — Enterprise Advanced**|Envoy / service-mesh filter · eBPF interception · SIEM connectors (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID) · gVisor sandboxing · dashboard SSO · central policy server|Roadmap only|
 
 Anything in a later stage is described in this vault as a design, not as a delivered feature.

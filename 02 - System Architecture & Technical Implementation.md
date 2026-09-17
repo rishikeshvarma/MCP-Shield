@@ -25,8 +25,8 @@
 A local proxy that sits between an MCP host (Claude Desktop, Cursor, a custom agent) and the MCP servers it talks to. It sees **both directions** of every conversation with every server, which is what the threat model requires.
 
 ```bash
-# Streamable HTTP server behind the proxy (2026-07-28 spec)
-mcp-shield proxy --listen 127.0.0.1:8800 --upstream https://tools.example.com/mcp
+# Streamable HTTP server behind the proxy (2026-07-28 spec) — a non-OAuth server, or one you operate (see "Which servers the proxy can front" below)
+mcp-shield proxy --listen 127.0.0.1:8800 --upstream http://localhost:3000/mcp
 
 # stdio server wrapped by the proxy (the host launches this command instead of the server)
 mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
@@ -99,25 +99,30 @@ The decorator receives an **already-parsed** payload, so it runs Tier 1 argument
 
 ```mermaid
 graph TD
-    In["Incoming MCP message (host → server or server → host)"] --> Ext["Untrusted-Segment Extractor (deterministic, no model)"]
+    In["Incoming MCP message (host → server or server → host)"] --> Ext["Untrusted-Segment Extractor (deterministic; normalises text; no model)"]
 
     subgraph Cascade["Hot-Path Cascade (end-to-end p95 target: <50 ms GPU / <250 ms CPU, pending benchmark)"]
         Ext --> T1["Tier 1: Structural & Policy Gate (<1ms)"]
         T1 -->|"Policy violation"| Deny1["BLOCK: SecurityPolicyError"]
         T1 -->|"No untrusted free text"| Pass
         T1 -->|"Untrusted free text present"| T2["Tier 2: Cache & Signature Layer (1–5ms)"]
-        T2 -->|"Exact/near hit on already-cleared content"| Pass["ALLOW / Forward"]
+        T2 -->|"Exact hash of already-cleared content"| Pass["ALLOW"]
         T2 -->|"Known-bad signature or DoS guard"| Deny2["BLOCK: SecurityInjectionError"]
-        T2 -->|"New content (default path)"| T3["Tier 3: Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per ≤512-token segment)"]
+        T2 -->|"New content (default path)"| T3["Tier 3: Encoder Injection Classifier (86M, adversarially trained; ≤40 ms GPU / ≤200 ms CPU per ≤512-token segment)"]
         T3 -->|"benign"| Pass
+        T3 -->|"abstain band (unsure)"| Abst["ALLOW under strict policy + queue for review"]
         T3 -->|"indirect_injection / command_injection / description_poisoning"| Deny2
     end
 
-    Pass --> Taint["Session Taint State (proxy-held)"]
+    Pass --> Taint["Session Taint State (proxy-held) + probe detection"]
+    Abst --> Taint
     Taint -->|"write/execute/egress call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
-    Taint --> Pin["Capability Pin Store (SHA-256, per server)"]
+    Taint --> Pin["Capability Pin Store (SHA-256, per server) + description scan"]
+    Pin -->|"new server, manifest not yet reviewed"| Quar["QUARANTINE: read-class tools only, strict taint, until accepted"]
     Pin -->|"manifest changed / description flagged"| Deny4["BLOCK: SecurityTamperingError"]
-    Pin --> Out["Forward to host / server"]
+    Pin --> Spot["Spotlighting: wrap forwarded text in untrusted-data markers"]
+    Quar --> Spot
+    Spot --> Out["Forward to host / server"]
     Deny2 -.->|"Stage 2, optional, off the hot path"| T4["Tier 4: Explainer SLM (local Ollama or opt-in cloud) → dashboard"]
 ```
 
@@ -251,5 +256,5 @@ Every block is logged with the tier, class, probability, and — locally only, r
 
 - **Stage 1 — Core (this semester, built first)**: `mcp-shield proxy` (HTTP + stdio), Tier 1–3 (Tier 3 adversarially trained, with the abstain band), untrusted-segment extractor, pin + scan + first-contact quarantine, session taint with overlap check and probe detection, MRTR provenance banner, Spotlighting markers + host prompt rules, `mcp-shield doctor` / `install`, benchmark harness (including the CI CPU-only baseline), minimal dashboard (traffic log + flagged inspector + pin viewer), PyPI release.
 - **Stage 1E — Enterprise Basics (this semester, built last, cut-line protected)**: structured JSONL audit log + OTLP export with `_meta` trace-context propagation; Dockerfile / docker-compose and a plain Kubernetes sidecar manifest; OAuth 2.1 bearer validation at the proxy (JWKS, `iss` / `aud` / `exp`) with a basic policy map (subject or role → allowed servers, tools and maximum privilege class); per-client sections in `mcp-shield.toml`. Built only after Stage 1 Core is benchmarked; if it slips, the thesis is unaffected. Details in `07` §7.
-- **Stage 2 (next semester)**: `@shield` decorator + ASGI middleware, state tracker (drift + loop breaker), Tier 4 explainer, MRTR-based human approval, full dashboard (topology map, tool hub, model switcher).
+- **Stage 2 (next semester)**: `@shield` decorator + ASGI middleware, state tracker (drift + loop breaker), Tier 4 explainer, MRTR-based human approval, full dashboard (topology map, tool hub, model switcher), the spec's OAuth proxy-server pattern for third-party OAuth-protected remote servers, and gated + rotated weight distribution as an option.
 - **Future — Enterprise Advanced**: Envoy / service-mesh filter, eBPF interception, SIEM connectors (Splunk, Datadog, Sentinel), IAM sync (Vault, Okta / Entra ID), gVisor sandboxing, dashboard SSO, central policy server.

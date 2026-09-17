@@ -146,8 +146,8 @@ mcp-shield install --host cursor --with-rules
 mcp-shield rules --print
 mcp-shield rules --print --short   # the compact form for hosts with tight instruction limits
 
-# Run the proxy (Stage 1) — HTTP upstream or wrapped stdio server
-mcp-shield proxy --listen 127.0.0.1:8800 --upstream https://tools.example.com/mcp
+# Run the proxy (Stage 1) — a non-OAuth HTTP upstream (or one you operate), or a wrapped stdio server
+mcp-shield proxy --listen 127.0.0.1:8800 --upstream http://localhost:3000/mcp
 mcp-shield proxy -- npx -y @modelcontextprotocol/server-filesystem /workspace
 
 # Launch the dashboard
@@ -179,7 +179,8 @@ graph LR
 
         Shield -->|"Clean (green)"| Tool1["Postgres server"]
         Shield -->|"Tainted session (yellow)"| Tool2["Web search server"]
-        Shield -->|"Blocked / pin changed (red)"| Tool3["Shell tool server"]
+        Shield -->|"Quarantined — new, not yet reviewed (grey)"| Tool3["Newly added server"]
+        Shield -->|"Blocked / manifest changed (red)"| Tool4["Server whose tool descriptions changed"]
     end
 ```
 

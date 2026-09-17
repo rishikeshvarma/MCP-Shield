@@ -168,7 +168,7 @@ graph LR
 _Figure 1: Six-phase pipeline — Phases 1–5 are Stage 1 Core, Phase 6 is Stage 1E._ · PNG in the vault root — right-click → copy image to paste into the deck.
 - Phases 1–5 = **Stage 1 Core** (must be benchmarked before submission)
 - Phase 6 = **Stage 1E Enterprise Basics** — starts only after Phase 5 numbers exist; dropped in the order E4 → E3 → E2 if time runs out
-- Stage 2 (decorator, drift tracker, explainer, human approval, full dashboard) begins next semester
+- Stage 2 (decorator, drift tracker, explainer, human approval, full dashboard, OAuth proxy-server pattern for third-party remote servers) begins next semester
 
 **Since Review-1**: the pipeline had five stages with "SLM fine-tuning" and "sandbox (gVisor)" in them; the model changed, gVisor moved to the enterprise roadmap, and Phase 6 was added.
 
