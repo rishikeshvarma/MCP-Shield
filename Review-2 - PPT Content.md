@@ -44,7 +44,8 @@
 | Deep dive after the rewrite | 6 | All fixed (e.g. tool annotations treated as untrusted, proxy hardened per the spec's Security Best Practices) |
 | Planning-phase limitations | 13 | Designed out (first-contact quarantine, probe detection, abstain band, `install`, Stage 1E) |
 | Final implementer-level audit | 26 | 22 designed out, 4 stated as permanent limitations |
-| **Total** | **73** | Every item traceable to a document and section |
+| Follow-up design additions (14–17 Sep) | 4 | Adversarial training rounds; Spotlighting + host prompt rules; diagram re-sync; no-oracle block errors |
+| **Total** | **77** | Every item traceable to a document and section |
 
 **Speaker notes**: We treated the design like code: reviewed it, wrote down every finding with a severity, and fixed or explicitly accepted each one. The four we accepted — OAuth-protected third-party servers until Stage 2, sessions per host app, images not inspected, legitimate updates tripping the pin — are on the last slide, in our words, before anyone asks.
 
