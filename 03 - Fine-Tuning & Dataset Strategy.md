@@ -12,7 +12,7 @@
 
 - **Why not Prompt Guard 2 weights directly**: they ship under the Llama community licence; MCP-Shield is Apache-2.0. Prompt Guard 2 is used as a **baseline in evaluation**, which is the more useful role anyway.
 - **Why not a 7B generative model**: it does not fit the latency budget (see `02` §0) and, per CASCADE (Turgut & Gümüş, 2026), a local review LLM added 2.51 s per call and changed no outcomes. A generative model remains useful as an *off-path explainer* (§10).
-- **Runtime**: export with `optimum` → ONNX → dynamic int8 quantisation; served by ONNX Runtime on CPU by default, with CUDA / DirectML / CoreML execution providers used when present *and* faster than the CPU on `doctor`'s self-test (`07` §6).
+- **Runtime**: export with `optimum` → ONNX → dynamic int8 quantisation; served by ONNX Runtime on CPU by default, with CUDA / DirectML / CoreML execution providers used when present *and* faster than the CPU on `doctor`'s self-test (`07` §6). Quantisation must cover the **embedding table** too (or the vocabulary is pruned to the tokens seen in training): the 250k × 768 matrix is ~190M of the ~278M parameters, ~760 MB on its own in fp32, and the ~300 MB file size assumed everywhere depends on it.
 - **Quantisation gate**: int8 is accepted only if it costs ≤ 0.5 points of recall at the operating FPR versus fp32 on validation; otherwise CPU ships fp16/fp32 and accepts the latency. CoreML acceleration is used where its op coverage allows, else CPU.
 - **Why one 86M model rather than a 22M one**: accuracy and multilingual coverage. The price is ~4× the CPU latency of the 22M variant — still a small fraction of a 500–2000 ms agent turn. Fallback order if Phase 5 says CPU latency is unacceptable: shorter chunks (256 tokens) → ONNX graph optimisation → only then a smaller backbone.
 - **Training hardware**: an 86M encoder fine-tunes in under an hour on the RTX 5060 Ti and in a few hours on the RTX 3050 (4 GB: batch 8 with gradient accumulation, fp16). CPU-only training is possible but slow (hours to a day) and not the plan. No QLoRA, no gradient-checkpointing gymnastics — that complexity belonged to the abandoned 7B plan.
@@ -193,6 +193,7 @@ What this buys and what it does not: attacks need more queries and compute and t
 |**Utility retained**|Task success on AgentDojo benign tasks with vs. without MCP-Shield|**≥ 95%** of undefended|
 |**Latency**|p50 / p95 per ≤512-token segment and end-to-end, CPU-only and GPU; the CPU-only number is taken on a standard 4-vCPU GitHub Actions runner so anyone can reproduce it, with our laptops reported alongside|**p95 < 50 ms with a GPU; < 250 ms CPU-only**|
 |**Baseline comparison**|Same held-out sets through Prompt Guard 2-86M unmodified (22M reported for reference)|reported|
+|**Footprint**|Peak resident memory (and VRAM with an accelerator) while a batch of 512-token chunks is classified, and disk used by weights + dependencies — on the CI runner and the team's laptops|reported; design estimates in `07` §6 (≈ 1 GB peak RAM, ≈ 0.6 GB disk CPU-only)|
 
 Problem-scale reference: 52.8% ASR for unprotected MCP and 12.4% under ATTESTMCP, both from the base paper — quoted as context, never as MCP-Shield results.
 

@@ -214,6 +214,8 @@ Stage 1 needs nothing beyond `pip install`: the classifier is one ~300 MB ONNX m
 
 All three are in the CI matrix; an accelerator is used only when `doctor`'s self-test shows it beats the CPU on your machine, and `doctor` prints the one-line wheel swap for CUDA / DirectML (the ONNX Runtime wheels are mutually exclusive, so it is never an extra). Details in `07` §6.
 
+**Minimum requirements** (estimates until Phase 5 measures them): Python 3.10–3.12 · about **0.6 GB of disk** (≈ 300 MB int8 weights + dependencies; keep 1 GB free, more for a CUDA setup) · about **1 GB of RAM at peak** for one proxy (2 GB free minimum, 4 GB recommended) · any x64 or arm64 CPU, with the < 250 ms target defined on a 4-vCPU runner · a GPU with ≥ 2 GB VRAM if you want fp16 acceleration. `doctor` prints what it found on your machine.
+
 Weights come from Hugging Face Hub's free file hosting (`rishikesh/mcp-shield-clf`), cached in the OS-appropriate directory via `platformdirs`, SHA-256 verified. An optional `HF_TOKEN` (free account) raises your download quota on shared networks; we never ship a shared token in the package. Full decision flow in [`07`](07%20-%20Model%20Distribution%2C%20PyPI%20Packaging%20%26%20Local%20Dashboard.md).
 
 ---

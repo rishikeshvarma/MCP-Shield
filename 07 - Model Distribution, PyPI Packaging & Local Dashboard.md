@@ -8,7 +8,7 @@
 
 ### The packaging picture after the encoder decision
 
-The Stage 1 hot-path model is a **~86M-backbone encoder** (`mcp-shield-clf`, mDeBERTa-v3-base lineage; roughly 300 MB as int8 ONNX because of its 250k-token vocabulary, ~550 MB as fp16). The earlier draft's problem — a 4–14 GB generative model that needed a GPU — no longer exists, but 300 MB still exceeds PyPI's 100 MB limit, so weights live on Hugging Face Hub, which also lets retrained classifiers ship without a package release.
+The Stage 1 hot-path model is a **~86M-backbone encoder** (`mcp-shield-clf`, mDeBERTa-v3-base lineage; roughly 300 MB as int8 ONNX because of its 250k-token vocabulary, ~550 MB as fp16 — figures that assume the **embedding table is quantised** along with the transformer weights, or the vocabulary pruned to the tokens seen in training: the 250k × 768 embedding matrix is ~190M of the model's ~278M parameters and is ~760 MB on its own in fp32). The earlier draft's problem — a 4–14 GB generative model that needed a GPU — no longer exists, but 300 MB still exceeds PyPI's 100 MB limit, so weights live on Hugging Face Hub, which also lets retrained classifiers ship without a package release.
 
 ```
 1. Classifier weights (.onnx + tokenizer)  ──>  Hugging Face Hub (free file hosting)
@@ -262,7 +262,20 @@ graph TD
 
 Detection is capability-based — "a CUDA device", "a DX12 device", "Apple Silicon" — never a list of named GPUs. The RTX 5060 Ti / RTX 3050 mentioned in `03` are our own dev machines, not a supported-hardware list. All three operating systems are in the CI matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`, Python 3.10 and 3.12): "runs on" is a design claim until that matrix is green, and Phase 3 verifies the host-config paths and the stdio wrapping on each OS by hand.
 
-Multiple proxies on one machine share one in-process classifier per proxy; the model is ~300 MB, so a handful of proxies per machine is fine where a multi-gigabyte model was not.
+Multiple proxies on one machine share one in-process classifier per proxy; the model is ~300 MB, so a handful of proxies per machine is fine where a multi-gigabyte model was not (budget ≈ 0.7 GB of RAM per proxy — table below).
+
+### Minimum requirements (design estimates — measured and published in Phase 5, `03` §9.1)
+
+|Resource|CPU-only (the default)|With an accelerator|Notes|
+|:--|:--|:--|:--|
+|**Python**|3.10 – 3.12|same|the versions in the CI matrix|
+|**Disk**|≈ **0.6 GB**: int8 weights ≈ 300 MB + tokenizer ≈ 5 MB + Python dependencies ≈ 200–250 MB; keep **1 GB free**|+ fp16 weights ≈ 550 MB; CUDA also needs `onnxruntime-gpu` (≈ 250 MB) and the CUDA / cuDNN runtime libraries if they are not already installed (1–3 GB); DirectML ≈ +100 MB|weights are downloaded once into the `platformdirs` cache; `doctor` prints the exact sizes it found|
+|**RAM**|≈ 0.6 GB resident for one proxy, ≈ **1 GB peak** while a batch of 512-token chunks is classified; **2 GB free minimum, 4 GB recommended**|host RAM the same; ≈ 1 GB of VRAM for the fp16 weights plus activations — any GPU with **≥ 2 GB VRAM**|each additional proxy loads its own copy of the model — budget ≈ 0.7 GB per proxy|
+|**CPU**|any x64 or arm64; the < 250 ms target is defined on a 4-vCPU x64 runner and scales with core count and AVX2 / VNNI support|—|a 2-core or older machine still runs everything, slower; `doctor`'s self-test reports the real number for that machine|
+|**Network**|one download of the weights (≈ 300 MB int8 or ≈ 550 MB fp16); nothing on the hot path afterwards|same|—|
+|**Stage 2 explainer** (optional)|not part of the Stage 1 minimum: a local 8B model through Ollama needs ≈ 5–6 GB of RAM or VRAM on its own|||
+
+These are estimates from the model size and the runtime's usual overhead, not measurements. Phase 5 records peak resident memory, VRAM and disk on the CI runner and on the team's laptops next to the latency numbers, and the model card and README carry the measured figures. `doctor` checks free memory before loading the model and warns when it is below the peak figure; a model that then fails to load is the fail-closed case of `02` §2, never a silent degradation.
 
 ### Configuration
 

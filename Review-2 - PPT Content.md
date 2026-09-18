@@ -368,6 +368,7 @@ SecurityConfig(
 | Testing / CI | `pytest`; GitHub Actions (4-vCPU runner = canonical CPU-only latency baseline) |
 | Data generation | Frontier models via API with `instructor` / `outlines` for structured output |
 | Hardware | RTX 5060 Ti (training, GPU latency), RTX 3050 4 GB laptop (4 GB training path), CI runner (CPU baseline) |
+| Footprint (estimates, measured in Phase 5) | ≈ 0.6 GB disk CPU-only (≈ 300 MB int8 weights + dependencies) · ≈ 1 GB RAM peak per proxy, 2 GB free minimum · ≥ 2 GB VRAM for fp16 acceleration · Python 3.10–3.12 |
 
 ---
 
