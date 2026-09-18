@@ -210,7 +210,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 - Host → server: `tools/call` arguments, allowlists, header ↔ body consistency
 - Server → host: tool results, resource contents, **tool descriptions**, MRTR input requests, notification text
 - `mcp-shield install --host …` routes every stdio and non-OAuth HTTP server through the proxy in one command; third-party OAuth-protected remote servers need the Stage 2 proxy-server pattern (the spec binds tokens to the URL the host connects to)
-- Secondary integration (Stage 2): `@shield` decorator / ASGI middleware for people who write servers
+- Secondary integration (Stage 2): `@shield` decorator / ASGI middleware for people who write servers — stacks with the proxy; the proxy never trusts a server's claim that it already scanned something
 
 **Since Review-1**: the decorator was the product; it could not see other servers' descriptions or results, which is where the attacks live.
 

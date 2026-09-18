@@ -48,7 +48,7 @@ Traditional firewalls were built for computer code, **not for human language**.
 
 ### What are we building (product scope)?
 
-- **WE ARE BUILDING**: `pip install mcp-shield-llm` — a local **security proxy** (`mcp-shield proxy`) that sits between your AI host and its MCP servers and inspects traffic in both directions, plus a smaller `@shield` decorator for people who write MCP servers.
+- **WE ARE BUILDING**: `pip install mcp-shield-llm` — a local **security proxy** (`mcp-shield proxy`) that sits between your AI host and its MCP servers and inspects traffic in both directions, plus a smaller `@shield` decorator for people who write MCP servers (the two can run together — the proxy never takes a server's word for anything).
 - **WE ARE NOT BUILDING**: new AI agents. MCP-Shield protects _any existing_ agent or server.
 - **Unrelated to** `riseandignite/mcp-shield`, an existing static scanner with a similar name.
 

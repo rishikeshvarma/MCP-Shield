@@ -147,7 +147,7 @@ async def handle_mcp_request(json_rpc_payload: dict):
     return {"jsonrpc": "2.0", "result": {"resultType": "complete", "content": []}, "id": json_rpc_payload.get("id")}
 ```
 
-The decorator receives an already-parsed payload, so it runs the Tier 1 argument policy and the classifier on free-text arguments. It protects **your** server's tool execution; it cannot see other servers or what the host does with results — use the proxy for that.
+The decorator receives an already-parsed payload, so it runs the Tier 1 argument policy and the classifier on free-text arguments. It protects **your** server's tool execution; it cannot see other servers or what the host does with results — use the proxy for that. The two stack: a user who routes your server through `mcp-shield proxy` keeps every proxy check, and the proxy never takes a server's word that something was already scanned. Add the decorator for users who *don't* run the proxy, and for your own logs.
 
 ```python
 # What the decorator catches: parameter-bound command injection

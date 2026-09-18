@@ -108,8 +108,9 @@ Seven work items, S2-1 to S2-7, ordered by dependency. The first four are the co
 3. Errors raised inside the server carry full detail for the server author's logs; the response the server sends to the host is the opaque stub.
 4. Documentation that says, in the first paragraph, what the decorator **cannot** see: other servers, tool descriptions from other servers, results going back to the host, cross-server taint. The proxy remains the product.
 5. Reference server: a small filesystem-like server with the decorator, plus the classic `path; cat /etc/passwd` test and a benign twin.
+6. Stacking test — the reference server run *behind* `mcp-shield proxy`. The two layers are independent trust domains (`02` §1 Mode B): both check host → server arguments, the proxy honours no "already scanned" signal from the server (a forged `_meta` flag in the test must skip nothing), and a decorator-raised block arrives at the host as the opaque stub and is listed in the dashboard as *returned by the server*, not as a proxy block.
 
-**Exit test.** The reference server blocks parameter-bound command injection and passes its benign twin; its host-facing error is the opaque stub; no `shell=True` anywhere in the package (CI grep).
+**Exit test.** The reference server blocks parameter-bound command injection and passes its benign twin; its host-facing error is the opaque stub; run behind the proxy, a forged "already scanned" flag skips nothing and a server-side block is labelled as the server's in the dashboard; no `shell=True` anywhere in the package (CI grep).
 
 **Effort.** 1.5 weeks · **Suggested owner:** member D.
 
