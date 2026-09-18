@@ -2,7 +2,7 @@
 
 Thank you for helping build a semantic firewall for the Model Context Protocol. This document covers how to set up a development environment, how changes are reviewed, and the rules that apply to security-sensitive code. Please read it before opening a pull request.
 
-MCP-Shield is a student-led research project (KMIT, Department of CSE — AI & ML). It is in its **design and Stage 1 build phase**: nothing in the benchmark table is measured yet, and the architecture documents (`00`–`07`) are the source of truth. If a change you propose contradicts them, open an issue first — the docs change before the code does.
+MCP-Shield is a student-led research project (KMIT, Department of CSE — AI & ML). It is in its **design and Stage 1 build phase**: nothing in the benchmark table is measured yet, and the architecture documents (`00`–`08`) are the source of truth. If a change you propose contradicts them, open an issue first — the docs change before the code does.
 
 ## Ground rules
 

@@ -203,7 +203,7 @@
   <div class="brand"><span class="logo">S</span> MCP-Shield <span class="ver">v0.1.0-dev</span></div>
   <div class="pills">
     <span class="pill"><span class="dot"></span> proxy listening <span class="mono">127.0.0.1:8800</span></span>
-    <span class="pill mono">clf 86M · int8 · CUDA</span>
+    <span class="pill mono">clf 86M · fp16 · CUDA</span>
     <span class="pill mono" id="pill-uptime">uptime 03:41:07</span>
     <span class="pill" id="pill-live"><span class="dot"></span> live</span>
   </div>
@@ -294,8 +294,8 @@
       <div class="grid2">
         <div class="card"><div class="hd">Classifier <span class="stage">S1</span></div><div class="bd">
           <div class="form">
-            <label>Model</label><div><code>mcp-shield-clf</code> v0.1.0 · mDeBERTa-v3-base lineage · 86M · int8 ONNX <span class="note">(SHA-256 verified on download)</span></div>
-            <label>Execution provider</label><div>CUDA (RTX 5060 Ti) · CPU fallback available</div>
+            <label>Model</label><div><code>mcp-shield-clf</code> v0.1.0 · mDeBERTa-v3-base lineage · 86M · fp16 ONNX on GPU, int8 on CPU <span class="note">(SHA-256 verified on download)</span></div>
+            <label>Execution provider</label><div>CUDA (RTX 5060 Ti) — kept because it beat the CPU on the self-test · CPU int8 fallback available</div>
             <label>Block threshold</label><div><code>0.78</code> <span class="note">chosen on validation hard negatives for FPR ≤ 0.5 % per document</span></div>
             <label>Abstain band</label><div><code>0.55 – 0.78</code> <span class="note">forwarded under strict policy and queued for review</span></div>
             <label>Adversarial rounds</label><div>3 · adaptive-set ASR reported separately in the model card</div>

@@ -13,7 +13,7 @@
 ### What MCP-Shield IS:
 
 - **A Local Security Proxy**: `mcp-shield proxy` sits between an MCP host (Claude Desktop, Cursor, a custom agent) and the MCP servers it uses, inspecting **both directions** of JSON-RPC 2.0 traffic — tool descriptions, tool results, resource contents, and server-issued input requests — not just the host's requests.
-- **A Real-Time Semantic Firewall**: a three-tier hot-path cascade (structural policy gate → cache/signature layer → fine-tuned encoder classifier) that detects Indirect Prompt Injection, Tool-Description Poisoning, and Parameter Command Injection, with an end-to-end target under **50 ms**.
+- **A Real-Time Semantic Firewall**: a three-tier hot-path cascade (structural policy gate → cache/signature layer → fine-tuned encoder classifier) that detects Indirect Prompt Injection, Tool-Description Poisoning, and Parameter Command Injection, with an end-to-end target under **50 ms with a GPU, under 250 ms CPU-only**.
 - **A Developer Library**: a secondary `@shield` decorator / ASGI middleware for developers who write MCP servers and want their own tool execution hardened.
 - **Enterprise-deployable in basic form**: an audit log with OTLP export, a Docker / Kubernetes sidecar deployment, and OAuth 2.1 bearer validation with a basic policy map (Stage 1E) — enough to run the proxy inside a team's infrastructure; service-mesh, eBPF, SIEM connectors and IAM sync remain roadmap.
 

@@ -83,7 +83,7 @@ graph TD
 
 ### 4. Tier 1 Argument Policy for Command Injection (Stage 1)
 
-- Path canonicalisation against a per-tool root allowlist; rejection of `;`, `|`, `&&`, `` ` ``, `$(` in path/command-typed fields; scheme/host allowlists for URL-typed fields; schema type enforcement against the pinned `inputSchema`.
+- Path canonicalisation against a per-tool root allowlist; rejection of `;`, `|`, `&&`, `` ` ``, `$(` in path/command-typed fields (the POSIX set; on Windows the cmd / PowerShell operators as well, with a Windows-aware canonicaliser — `02` §2); scheme/host allowlists for URL-typed fields; schema type enforcement against the pinned `inputSchema`.
 - Works identically in proxy mode and in the `@shield` decorator, because it needs only the parsed arguments.
 - **gVisor** is *not* part of this defence for individual developers: it is Linux-only, requires Docker/`runsc`, and adds 100 ms–1 s per call. It remains on the enterprise roadmap for deployments that already run containers.
 

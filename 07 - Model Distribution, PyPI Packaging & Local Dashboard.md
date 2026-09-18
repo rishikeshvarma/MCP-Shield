@@ -35,7 +35,7 @@ Publishing to PyPI is free. Package name `mcp-shield-llm`, import name `mcp_shie
 mcp-shield-llm/
 ├── mcp_shield/
 │   ├── __init__.py            # shield, SecurityConfig, error types
-│   ├── cli.py                 # doctor · install · rules · proxy · dashboard · pull-model · pin · benchmark
+│   ├── cli.py                 # doctor · install · uninstall · rules · proxy · dashboard · pull-model · pin · benchmark
 │   ├── proxy/                 # Mode A (Stage 1)
 │   │   ├── http.py            #   Streamable HTTP reverse proxy (ASGI)
 │   │   └── stdio.py           #   stdio wrapper for local servers
@@ -46,6 +46,10 @@ mcp-shield-llm/
 │   │   └── tier3_classifier.py#   ONNX encoder classifier + calibration
 │   ├── taint.py               # session taint state + overlap check
 │   ├── pinning.py             # SHA-256 pin store + description scan
+│   ├── spotlight.py           # Spotlighting markers on forwarded untrusted text
+│   ├── host_rules.md          # packaged Host Prompt Rules (mcp-shield rules --print; install --with-rules)
+│   ├── audit.py               # Stage 1E: JSONL audit log + OTLP export
+│   ├── auth.py                # Stage 1E: OAuth 2.1 bearer validation (JWKS) + policy map
 │   ├── state_tracker.py       # Stage 2: drift + loop breaker
 │   ├── decorator.py           # Stage 2: @shield + ASGI middleware (Mode B)
 │   ├── explainer/             # Stage 2: Tier 4 providers (ollama, openai, deepseek, anthropic)

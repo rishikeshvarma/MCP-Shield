@@ -262,7 +262,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 
 | Module | Responsibility | Stage |
 |:--|:--|:--|
-| `cli.py` | `doctor` · `install` · `proxy` · `dashboard` · `pull-model` · `pin` · `benchmark` | 1 |
+| `cli.py` | `doctor` · `install` / `uninstall` · `rules` · `proxy` · `dashboard` · `pull-model` · `pin` · `benchmark` | 1 |
 | `proxy/http.py` | ASGI reverse proxy; header allowlist before body parse; `Host` check + `Origin` allowlist; optional bearer token; `2025-11-25` pass-through (`initialize`, `Mcp-Session-Id`) | 1 |
 | `proxy/stdio.py` | Spawns the wrapped server from CLI/config only; frames JSON-RPC over stdio | 1 |
 | `cascade/extractor.py` | Untrusted-segment extractor: `(context_prefix, text)` pairs from any message | 1 |
@@ -359,7 +359,7 @@ SecurityConfig(
 | Proxy | ASGI app served by `uvicorn`; `httpx` to upstream Streamable HTTP; `asyncio.subprocess` for stdio wrapping; classifier inference in a worker thread |
 | Protocol support | `2026-07-28` primary; `2025-11-25` hosts/servers passed through during the deprecation window, legacy sampling/elicitation classified like MRTR; Stage 1 fronts stdio, non-OAuth HTTP and self-operated servers |
 | Model | `microsoft/mdeberta-v3-base` (MIT) → fine-tuned with `transformers` + `datasets`; exported with `optimum` → ONNX; fp16 on GPU, int8 on CPU |
-| Inference | `onnxruntime` with CUDA / DirectML / CoreML execution providers; CPU fallback everywhere |
+| Inference | `onnxruntime` with CUDA / DirectML / CoreML execution providers; CPU int8 everywhere, an accelerator only when `doctor`'s self-test shows it beats the CPU |
 | Tier 2 & taint | Hashing + exact signatures; embeddings reuse the Tier 3 encoder's pooled vector (no second model); MinHash shingles (`datasketch`) |
 | Storage | SQLite for pin store and audit; in-process LRU for the cache |
 | Dashboard | FastAPI + WebSocket + static HTML/JS (D3 / Cytoscape in Stage 2) |
@@ -418,7 +418,7 @@ _Figure 4: Stage 1 build calendar (dates indicative — re-cut against the offic
 | 12–13 | 30 Nov – 13 Dec | 6 · Enterprise basics | E1 → E2 → E3 → E4 (cut in reverse order if late) | 2 E1/E2 · 2 E3/E4 |
 | 14 | 14 Dec – 20 Dec | Buffer | Report, presentation, slack | all |
 
-- **Review-2**: _____ (insert date) · **Fixed rules**: core before enterprise; Phase 6 drops before Phase 5 does
+- **Review-2**: Saturday 19 Sep 2026 (week 1) · **Fixed rules**: core before enterprise; Phase 6 drops before Phase 5 does
 - Dates are indicative and will be re-cut against the official semester calendar
 
 ---
@@ -439,6 +439,6 @@ _Figure 4: Stage 1 build calendar (dates indicative — re-cut against the offic
 ### Slide C.2 — Ask / next steps
 
 **On the slide**
-- Confirm Review-2 date and semester end for the calendar
+- Confirm the semester end date for the calendar (Review-2 itself: 19 Sep 2026, week 1)
 - Faculty decision on the product name (`riseandignite/mcp-shield` collision disclosed; `mcp-shield-llm` and `mcp-shield` are free on PyPI)
 - Phase 1 starts 14 Sep: dataset assembly and proxy skeleton in parallel
