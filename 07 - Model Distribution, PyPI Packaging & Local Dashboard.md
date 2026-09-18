@@ -142,6 +142,9 @@ mcp-shield doctor
 
 # Route every stdio and non-OAuth HTTP server in the host's MCP config through the proxy (backup kept; `mcp-shield uninstall` restores).
 # OAuth-protected remote servers are reported, not rewritten — see 02 §1
+# Config files `install` knows: Claude Desktop — %APPDATA%\Claude\claude_desktop_config.json (Windows),
+#   ~/Library/Application Support/Claude/claude_desktop_config.json (macOS; no official Linux build);
+#   Cursor — ~/.cursor/mcp.json (global) and <project>/.cursor/mcp.json. Anything else: --host <path-to-config>
 mcp-shield install --host claude-desktop
 mcp-shield install --host cursor
 # Also insert the host prompt rules where the host exposes an instructions file (Claude Desktop project, Cursor rules, custom agent)
@@ -215,6 +218,8 @@ Per-tool policies: privilege class (config can only raise the class above the na
 
 With an encoder on the hot path, **Stage 1 needs nothing beyond `pip install`**: ONNX Runtime is an ordinary dependency, the classifier runs on CPU everywhere, and a GPU only makes it faster. The earlier draft's decision tree — Ollama as first choice with a consent prompt, ONNX as fallback, "Tier 1 + 2 only" when no GPU exists — was a consequence of needing a 7B model. It is gone. No user is ever left with a degraded, classifier-less mode because of their hardware.
 
+Two packaging facts shape this. **ONNX Runtime ships as mutually exclusive wheels** — `onnxruntime` (CPU; every OS, x64 and arm64; the macOS wheel is expected to carry the CoreML EP — verify with `onnxruntime.get_available_providers()` in Phase 1), `onnxruntime-gpu` (CUDA; Linux and Windows) and `onnxruntime-directml` (Windows) — and pip cannot express "replace the CPU wheel", so the package depends on the CPU wheel and an accelerator is a documented swap that `doctor` prints when it detects the device (`pip uninstall onnxruntime && pip install onnxruntime-gpu`), never an extra that would install two wheels side by side; `doctor` warns when it finds two. And **an accelerator is kept only if it wins**: `doctor` runs the self-test on the accelerator and on CPU and keeps CPU when the accelerator is not faster — int8 op coverage on DirectML and CoreML is partial, and a graph split between an accelerator and the CPU can be slower than the CPU alone.
+
 Consent still matters in exactly one place: the **Stage 2 Tier 4 explainer**, which uses Ollama (a separate daemon, installed outside the Python process) or a cloud API (the user's own key). Both are opt-in.
 
 ### `mcp-shield doctor` decision flow
@@ -255,7 +260,7 @@ graph TD
 |**macOS**|`uvloop`|ONNX Runtime, CPU int8|CoreML where op coverage allows, else CPU|same|
 |**Linux**|`uvloop`|ONNX Runtime, CPU int8|CUDA|same|
 
-Detection is capability-based — "a CUDA device", "a DX12 device", "Apple Silicon" — never a list of named GPUs. The RTX 5060 Ti / RTX 3050 mentioned in `03` are our own dev machines, not a supported-hardware list.
+Detection is capability-based — "a CUDA device", "a DX12 device", "Apple Silicon" — never a list of named GPUs. The RTX 5060 Ti / RTX 3050 mentioned in `03` are our own dev machines, not a supported-hardware list. All three operating systems are in the CI matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`, Python 3.10 and 3.12): "runs on" is a design claim until that matrix is green, and Phase 3 verifies the host-config paths and the stdio wrapping on each OS by hand.
 
 Multiple proxies on one machine share one in-process classifier per proxy; the model is ~300 MB, so a handful of proxies per machine is fine where a multi-gigabyte model was not.
 
