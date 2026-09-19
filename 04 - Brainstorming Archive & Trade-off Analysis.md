@@ -1,4 +1,4 @@
-# 04 - Brainstorming Archive & Trade-Off Analysis
+# 04 - Brainstorming Archive & Trade-off Analysis
 
 > **Context**: Summary of the 2-week intensive brainstorming session evaluating 7 candidate Agentic AI project ideas for the final-year major project.
 

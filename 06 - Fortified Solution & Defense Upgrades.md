@@ -1,4 +1,4 @@
-# 06 - Fortified Solution Architecture & Defense Upgrades
+# 06 - Fortified Solution & Defense Upgrades
 
 > **Focus**: how each vulnerability in [[01 - Threat Model & Vulnerabilities]] is addressed, by which mechanism from [[02 - System Architecture & Technical Implementation]], at which delivery stage, and with which known limits. No defence here is "bulletproof"; each row says what it detects, what it mitigates, and what it leaves open.
 
@@ -70,7 +70,7 @@ graph TD
 ### 2. Capability Pinning + Description Scanning (Stage 1)
 
 - **Pin**: canonical-JSON SHA-256 per tool on first `tools/list`; compared on every later listing and on `toolsListChanged`; any change withholds the tool and raises `SecurityTamperingError` until the developer re-pins explicitly.
-- **Scan**: descriptions and schema strings go through Tier 3 at list time; a flagged tool is never shown to the host.
+- **Scan**: descriptions and schema strings go through Tier 3 at list time; a flagged tool is never shown to the host (`SecurityInjectionError`, class `description_poisoning` — `SecurityTamperingError` is only for a manifest that changed).
 - **First-contact quarantine**: a server with no pin yet exposes only `read`-class tools and runs under `strict` taint until the developer reviews the manifest and the scan verdicts and accepts them; published pins for the reference servers are trusted on match.
 - **Known limitation — TOFU, narrowed**: pinning alone protects against *changes* after first contact; quarantine puts a human review in front of first contact, but a reviewer can still accept a description whose malice neither they nor the classifier recognise.
 

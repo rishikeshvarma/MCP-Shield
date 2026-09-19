@@ -1,4 +1,4 @@
-# 01 - Threat Model & Advanced Vulnerabilities
+# 01 - Threat Model & Vulnerabilities
 
 ## The "Confused Deputy" Problem in MCP
 > Terminology: the MCP specification's *Security Best Practices* page uses "confused deputy" for an OAuth-proxy consent-bypass attack. This vault, like the base paper, uses the term in its classic sense — a privileged program (the host LLM) tricked into misusing its authority.

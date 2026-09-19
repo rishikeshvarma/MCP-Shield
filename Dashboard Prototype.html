@@ -422,7 +422,7 @@
   servers.forEach(s => s.tools.forEach(([t, c]) => tools.push({ server: s.id, tool: t, cls: c, by: c === 'read' ? 'name heuristic' : (t === 'run_shell' ? 'config' : (['send_email','fetch_url','search','export_workspace'].includes(t) ? 'name heuristic' : 'annotation ↑')), shell: s.mode === 'shell', approval: t === 'run_shell' || t === 'send_email' || t === 'execute', cap: c === 'read' ? '2 MB (truncate + flag)' : '256 KB' })));
 
   const state = { tab: 'traffic', traffic: seedTraffic.map(r => ({ time: r[0], dir: r[1], session: r[2], server: r[3], tool: r[4], method: r[5], segs: r[6], tiers: r[7], verdict: r[8], ref: r[9] || null })),
-    selected: flagged[0].ref, checked: 1284, blocked: 6, paused: false, spark: { checked: [61,72,80,74,90,97,88,102,110,96,104,115], p95: [39,42,40,44,41,38,43,40,42,39,41,41], blocked: [0,1,0,0,2,0,1,0,0,1,0,1] } };
+    selected: flagged[0].ref, checked: 1284, blocked: 5, paused: false, spark: { checked: [61,72,80,74,90,97,88,102,110,96,104,115], p95: [39,42,40,44,41,38,43,40,42,39,41,41], blocked: [0,1,0,0,1,0,1,0,0,1,0,1] } };
 
   // ---------------- charts ----------------
   function sparkline(values, opts) {
@@ -435,7 +435,7 @@
   function renderTiles() {
     const t = [
       { lbl: 'Messages checked · 24 h', val: state.checked.toLocaleString(), delta: '+9 % vs yesterday', dc: '', spark: state.spark.checked, sl: 'messages per 2-hour bucket' },
-      { lbl: 'Blocked · 24 h', val: String(state.blocked), unit: '+1 quarantined', delta: '2 taint · 2 injection · 1 policy · 1 DoS', dc: '', spark: state.spark.blocked, sl: 'blocks per 2-hour bucket' },
+      { lbl: 'Blocked · 24 h', val: String(state.blocked), unit: '+1 quarantined', delta: '1 injection · 1 taint · 1 policy · 1 tampering · 1 DoS', dc: '', spark: state.spark.blocked, sl: 'blocks per 2-hour bucket' },
       { lbl: 'End-to-end p95 latency', val: '41', unit: 'ms · GPU', delta: 'target < 50 ms GPU · < 250 ms CPU', dc: 'good', spark: state.spark.p95, sl: 'p95 latency per 2-hour bucket, ms' },
       { lbl: 'Sessions', val: '2', unit: '1 strict', delta: 'sess-9b2f escalated by probe detection', dc: 'bad', spark: [1,1,2,2,2,2,2,2,2,2,2,2], sl: 'active sessions' },
     ];
@@ -500,7 +500,7 @@
     $('#flag-detail').innerHTML = `
       <dl class="kv"><dt>Verdict</dt><dd>${kindChip(f.kind)} <span style="margin-left:6px">${esc(f.tier)} · <code>${esc(f.cls)}</code>${f.overlap ? ' · ' + esc(f.overlap) : ''}</span></dd>
         <dt>Where</dt><dd><b>${esc(f.server)}</b> · <code>${esc(f.tool)}</code> · ${f.dir === '←' ? 'server → host' : 'host → server'} · session <code>${esc(f.session)}</code> · ${esc(f.time)}</dd>
-        <dt>Error class</dt><dd><code>${{ injection: 'SecurityInjectionError', dos: 'SecurityInjectionError', policy: 'SecurityPolicyError', taint: 'SecurityTaintViolationError', tamper: 'SecurityTamperingError', quarantine: 'SecurityTamperingError (withheld)', abstain: '— (forwarded)' }[f.kind]}</code></dd></dl>
+        <dt>Error class</dt><dd><code>${{ injection: 'SecurityInjectionError', dos: 'SecurityInjectionError', policy: 'SecurityPolicyError', taint: 'SecurityTaintViolationError', tamper: 'SecurityTamperingError', quarantine: 'SecurityInjectionError (description_poisoning · tool withheld)', abstain: '— (forwarded)' }[f.kind]}</code></dd></dl>
       ${probRow}
       <div><h4>Offending segment <span style="font-weight:400;text-transform:none;letter-spacing:0">— kept locally only · redacted · 7-day retention</span></h4><pre class="seg">${highlight(f.segment)}</pre></div>
       ${f.note ? `<div class="note">${esc(f.note)}</div>` : ''}

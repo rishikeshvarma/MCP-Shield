@@ -1,4 +1,4 @@
-# 07 - Model Hosting, PyPI Deployment & Local Dashboard Architecture
+# 07 - Model Distribution, PyPI Packaging & Local Dashboard
 
 > **Focus**: zero-cost model distribution, the PyPI release pipeline, the OS-aware runtime selection performed by `mcp-shield doctor`, and the localhost security dashboard — all aligned to the canonical design in [[02 - System Architecture & Technical Implementation]]. Stage tags follow `02` §9.
 
@@ -343,7 +343,7 @@ graph TD
 ```toml
 # mcp-shield.toml (excerpt)
 [audit]
-file          = "./mcp-shield-audit.jsonl"
+file          = "~/.cache/mcp-shield/audit.jsonl"   # default = the platformdirs cache dir for the OS (§1); any path accepted
 otlp_endpoint = "http://localhost:4318"     # optional
 
 [auth]

@@ -81,7 +81,8 @@ graph TD
     Taint -->|"high-privilege call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
     Taint --> Pin["Capability Pin Store + Description Scan"]
     Pin -->|"new server, not yet reviewed"| Quar["QUARANTINE: read-class tools only, strict taint"]
-    Pin -->|"manifest changed / description flagged"| Deny4["BLOCK: SecurityTamperingError"]
+    Pin -->|"manifest changed"| Deny4["BLOCK: SecurityTamperingError"]
+    Pin -->|"description flagged (description_poisoning)"| Deny5["BLOCK: SecurityInjectionError — tool withheld"]
     Pin --> Spot["Spotlighting markers on forwarded text"]
     Quar --> Spot
     Spot --> Out["Forward"]

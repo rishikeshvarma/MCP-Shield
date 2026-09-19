@@ -349,7 +349,8 @@ graph TD
     Taint -->|"high-privilege call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
     Taint --> Pin["Capability Pin Store + Description Scan"]
     Pin -->|"new server, not yet reviewed"| Quar["QUARANTINE: read-class tools only, strict taint"]
-    Pin -->|"manifest changed / description flagged"| Deny4["BLOCK: SecurityTamperingError"]
+    Pin -->|"manifest changed"| Deny4["BLOCK: SecurityTamperingError"]
+    Pin -->|"description flagged (description_poisoning)"| Deny5["BLOCK: SecurityInjectionError — tool withheld"]
     Pin --> Spot["Spotlighting markers on forwarded text"]
     Quar --> Spot
     Spot --> Out["Forward"]
@@ -499,9 +500,6 @@ Numbering matches [[05 - Literature Survey & Research Papers]], which carries fu
 16. **Fairoze, J., Garg, S., Lee, K. et al.** "Bypassing Prompt Guards in Production with Controlled-Release Prompting." arXiv:2510.01529, 2025.
 17. **Zhang, Z. et al.** "Agent-SafetyBench: Evaluating the Safety of LLM Agents." arXiv:2412.14470, 2024.
 18. **Lupinacci, M. et al.** "The Dark Side of LLMs: Agent-based Attacks for Complete Computer Takeover." arXiv:2507.06850, 2025.
-27. **Madry, A., Makelov, A., Schmidt, L., Tsipras, D. & Vladu, A.** "Towards Deep Learning Models Resistant to Adversarial Attacks." ICLR 2018. arXiv:1706.06083.
-28. **Ebrahimi, J., Rao, A., Lowd, D. & Dou, D.** "HotFlip: White-Box Adversarial Examples for Text Classification." ACL 2018. arXiv:1712.06751.
-29. **Jin, D., Jin, Z., Zhou, J. T. & Szolovits, P.** "Is BERT Really Robust? A Strong Baseline for Natural Language Attack on Text Classification and Entailment." AAAI 2020. arXiv:1907.11932.
 19. **Model Context Protocol.** Specification revision 2026-07-28, "Key Changes" changelog (SEP-2243, SEP-2322, SEP-2549, SEP-2567, SEP-2575, SEP-2577).
 20. **Model Context Protocol.** "Security Best Practices." Specification 2026-07-28.
 21. **Equixly.** "MCP Servers: The New Security Nightmare." Blog, 29 March 2025.
@@ -510,3 +508,6 @@ Numbering matches [[05 - Literature Survey & Research Papers]], which carries fu
 24. **Invariant Labs.** `mcp-scan`. GitHub, 2025.
 25. **riseandignite.** `mcp-shield` (unrelated static scanner). GitHub, 2025.
 26. **Cisco AI Defense.** `mcp-scanner`. GitHub / PyPI, 2025.
+27. **Madry, A., Makelov, A., Schmidt, L., Tsipras, D. & Vladu, A.** "Towards Deep Learning Models Resistant to Adversarial Attacks." ICLR 2018. arXiv:1706.06083.
+28. **Ebrahimi, J., Rao, A., Lowd, D. & Dou, D.** "HotFlip: White-Box Adversarial Examples for Text Classification." ACL 2018. arXiv:1712.06751.
+29. **Jin, D., Jin, Z., Zhou, J. T. & Szolovits, P.** "Is BERT Really Robust? A Strong Baseline for Natural Language Attack on Text Classification and Entailment." AAAI 2020. arXiv:1907.11932.

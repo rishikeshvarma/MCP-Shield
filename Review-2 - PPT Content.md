@@ -246,9 +246,9 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 | Mechanism | Stage | Raises |
 |:--|:--|:--|
 | Tier 1 policy (headers, schema, arguments) | 1 | `SecurityPolicyError` |
-| Tier 2/3 detection (signatures, DoS guard, classifier) | 1 | `SecurityInjectionError` (class + probability) |
+| Tier 2/3 detection (signatures, DoS guard, classifier — including the description scan at list time) | 1 | `SecurityInjectionError` (class + probability, recorded locally) |
 | Session taint + probe detection | 1 (approval flow 2) | `SecurityTaintViolationError` |
-| Pinning + scan + quarantine | 1 | `SecurityTamperingError` |
+| Pinning + quarantine (manifest changed after pinning) | 1 | `SecurityTamperingError` |
 
 - Error views by audience: the **host** receives one opaque stub for all four (`Request blocked by MCP-Shield policy (ref …)`); the **dashboard / audit log** get tier, class, probability and segment; the **server** gets nothing. A block is never an oracle — the design does not rely on being hidden, only on not being informative.
 
@@ -297,14 +297,17 @@ sequenceDiagram
     S-->>P: result: issue body text
     Note over P: Extractor → Tier 2 cache miss → Tier 3 classify
     alt indirect_injection
-        P-->>H: SecurityInjectionError (class, probability)
+        Note over P: SecurityInjectionError (class, probability) logged locally, shown in the dashboard
+        P-->>H: error -32000 "Request blocked by MCP-Shield policy (ref 7f3a92c1)"
+        Note over S: receives nothing
     else benign / abstain
         Note over P: record TaintRecord, abstain means session goes strict
-        P-->>H: result forwarded
+        P-->>H: result forwarded inside Spotlighting markers
     end
     H->>P: tools/call run_shell (args overlap tainted text)
-    Note over P: taint overlap ≥ threshold on an execute-class tool
-    P-->>H: SecurityTaintViolationError
+    Note over P: taint overlap ≥ threshold on an execute-class tool, SecurityTaintViolationError logged locally
+    P-->>H: error -32000 "Request blocked by MCP-Shield policy (ref a91d40e7)"
+    Note over S: call never forwarded
 ```
 
 ![[Review-2 - Fig 3 Request Path Sequence.png]]

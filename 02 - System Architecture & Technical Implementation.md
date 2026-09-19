@@ -130,7 +130,8 @@ graph TD
     Taint -->|"write/execute/egress call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
     Taint --> Pin["Capability Pin Store (SHA-256, per server) + description scan"]
     Pin -->|"new server, manifest not yet reviewed"| Quar["QUARANTINE: read-class tools only, strict taint, until accepted"]
-    Pin -->|"manifest changed / description flagged"| Deny4["BLOCK: SecurityTamperingError"]
+    Pin -->|"manifest changed"| Deny4["BLOCK: SecurityTamperingError"]
+    Pin -->|"description flagged (description_poisoning)"| Deny5["BLOCK: SecurityInjectionError — tool withheld"]
     Pin --> Spot["Spotlighting: wrap forwarded text in untrusted-data markers"]
     Quar --> Spot
     Spot --> Out["Forward to host / server"]
@@ -219,7 +220,7 @@ A deterministic walker over the JSON-RPC message that yields `(context_prefix, t
 ## 5. Capability Pinning + Description Scanning (Stage 1)
 
 - **Pin**: on the first `tools/list` (also `prompts/list`, `resources/templates/list`) from a server, each tool's canonical JSON (name, description, `inputSchema`, `outputSchema`, annotations) is hashed with SHA-256 and stored in a per-server pin store. Every later list result is compared; any changed or added tool is withheld from the host and raises **`SecurityTamperingError`** until the developer explicitly re-pins (`mcp-shield pin --server <name> --accept`). `subscriptions/listen` → `toolsListChanged` is the spec-native trigger for re-checking. **Legitimate updates look like rug-pulls**: any server update changes descriptions, so on change the dashboard shows a description diff and the re-scan verdict and offers one-click re-pin when the scan is clean; known-manifest version bumps are guided the same way. Without this every `npm update` would be an alert — a UX limitation, stated as such.
-- **Scan**: every description and schema string is run through Tier 3 at list time (`description_poisoning` class). A flagged tool is never exposed to the host. This is what addresses **first-contact** poisoning, which pinning alone cannot.
+- **Scan**: every description and schema string is run through Tier 3 at list time (`description_poisoning` class). A flagged tool is never exposed to the host — this is a classifier verdict, so it raises **`SecurityInjectionError`** (class `description_poisoning`); `SecurityTamperingError` is reserved for a manifest that *changed* after pinning. This is what addresses **first-contact** poisoning, which pinning alone cannot.
 - **First-contact quarantine ("trust on first review")**: a server with no entry in the pin store starts **quarantined**: its `read`-class tools are exposed, its `write` / `execute` / `egress` tools are withheld, and all of its results are handled under `strict` taint policy — until the developer has looked at the pinned manifest and the scan verdicts and accepted them (`mcp-shield pin --server <name> --accept`, or one click in the dashboard). The package also ships **known manifests**: published SHA-256 pins for the reference MCP servers, so those are trusted on match without a manual step.
 - **Known limitation (TOFU, narrowed)**: pinning alone is trust-on-first-use, the same limitation the base paper names for ATTESTMCP. Quarantine turns it into trust-on-first-*review* — a human sees the descriptions and the classifier's verdicts before a new server gets any dangerous capability — but a reviewer can still approve a description whose malice neither they nor the classifier recognise.
 
@@ -256,7 +257,7 @@ The same fields live in `mcp-shield.toml` for the proxy. There is no separate `s
 |Error|Raised by|Meaning|
 |:--|:--|:--|
 |`SecurityPolicyError`|Tier 1|Header/body mismatch, disallowed tool, argument policy violation, schema violation|
-|`SecurityInjectionError`|Tier 2/3|Known-bad signature, DoS guard, or classifier verdict ≠ `benign` (class + probability recorded internally)|
+|`SecurityInjectionError`|Tier 2/3|Known-bad signature, DoS guard, or classifier verdict ≠ `benign` (class + probability recorded internally) — including `description_poisoning` at list time, where the tool is withheld|
 |`SecurityTaintViolationError`|Taint engine|High-privilege call whose arguments overlap tainted content, or any such call under `strict` policy|
 |`SecurityTamperingError`|Pin store|Tool manifest changed after pinning|
 
