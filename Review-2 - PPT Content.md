@@ -26,11 +26,11 @@
 | Where the firewall sits | `@shield` decorator inside the tool server | **Local proxy** between the host and every server (both directions); decorator kept as a Stage 2 extra |
 | Detection model | Fine-tuned 7B generative SLM, claimed 15–40 ms | **One 86M encoder classifier** (`mcp-shield-clf`); ≤40 ms GPU / ≤200 ms CPU per segment |
 | What gets classified | Only traffic a vector score marked "suspicious" | **Every untrusted segment**; cache is a cache, not a gate |
-| Taint tracking | Tags injected into strings | **Proxy-held session state** + argument-overlap check |
+| Taint tracking | Tags injected into strings | **Proxy-held session state** across every server + containment check on high-privilege and cross-server calls |
 | Tool poisoning | Pin on first sight | Pin + classifier scan + **first-contact quarantine** |
 | Evaluation | Trained and tested on the same benchmarks | **Held-out suites**, leave-one-source-out, adaptive red-team set, CI CPU baseline |
 | Scope | One undifferentiated feature list | **Stage 1 Core → Stage 1E Enterprise Basics → Stage 2 → Future**, with a cut-line |
-| Bibliography | 13 entries, 5 unverifiable or mis-cited | **29 verified entries** |
+| Bibliography | 17 references across three disagreeing lists; 6 unverifiable or superseded, 4 mis-cited | **30 verified entries** in one list |
 
 **Speaker notes**: A design review between the two reviews found contradictions a security reviewer would catch: the decorator could not see other servers, the 7B model could not meet its own latency claim, and most traffic never reached the semantic classifier. Every one of those is now fixed in the design, and the rest of this deck is built on the corrected version.
 
@@ -110,12 +110,14 @@
 
 | Change | Entries |
 |:--|:--|
-| **Corrected** | Base paper first author (Narek Maloyan) and full title; MCP-Guard → Xing et al., arXiv:2508.10991 (was "Kumar, 2504.11200"); Equixly year 2025 (was 2026); MCP-Bench described as a capability benchmark, as the base paper itself does; base paper's three vulnerabilities stated as the paper states them |
-| **Removed (could not be verified)** | "Securing the Mesh…" (2026), "Towards a Science of AI Agent Reliability" (2026), "The Rise of Agentic Testing" (ICSE 2026) — no authors, no identifiers; "88% incident rate (TechStories)"; a Unit 42 report whose cited title could not be confirmed |
-| **Added (16)** | CASCADE [5], MCP-DPT [6], CaMeL [10], LlamaFirewall [12], Prompt Guard 2 card [13], Bhagwatkar [14], Fomin [15], Fairoze [16], MCP spec 2026-07-28 [19], Security Best Practices [20], HackerOne [22], CVE-2025-49596 [23], the three scanners [24–26], adversarial-training references [27–29] |
-| **Consolidated** | Three disagreeing reference lists (05, presentation §5, §9) → one canonical bibliography, 29 entries, every one checked at its source |
+| **Before** | 17 distinct references spread over three disagreeing lists (`05`, presentation §5, §9) |
+| **Corrected and kept (4)** | Base paper first author (Narek Maloyan) and full title, its three vulnerabilities stated as the paper states them; MCP-Guard → Xing et al., arXiv:2508.10991 (was "Kumar, 2504.11200"); Equixly year 2025 (was 2026); MCP-Bench described as a capability benchmark, as the base paper itself does |
+| **Kept unchanged (7)** | MCPSecBench, Greshake et al., InjecAgent, AgentDojo, Spotlighting, Agent-SafetyBench, Lupinacci et al. |
+| **Removed (6)** | "Securing the Mesh…" (2026), "Towards a Science of AI Agent Reliability" (2026), "The Rise of Agentic Testing" (ICSE 2026) — no authors, no identifiers; a Unit 42 report whose cited title could not be confirmed; a Microsoft developer-blog post and an Anthropic security-best-practices page, both superseded by the spec's own Security Best Practices [20]. The unsourced "88% incident rate (TechStories)" statistic went too |
+| **Added (19)** | CASCADE [5], MCP-DPT [6], CaMeL [10], LlamaFirewall [12], Prompt Guard 2 card [13], Bhagwatkar [14], Fomin [15], Fairoze [16], MCP spec 2026-07-28 [19], Security Best Practices [20], HackerOne [22], CVE-2025-49596 [23], the three scanners [24–26], adversarial-training references [27–29], winnowing [30] |
+| **Consolidated** | 17 − 6 + 19 → one canonical bibliography of **30 entries**, every one checked at its source |
 
-**Speaker notes**: The survey went from 13 entries, five of which would not survive a citation check, to 29 verified entries — and, more importantly, the new 2026 work (CASCADE, MCP-DPT, Fomin) directly shaped three design decisions, which the next section shows.
+**Speaker notes**: The survey went from 17 references in three lists that disagreed with each other — six of which could not be verified or had been superseded — to 30 verified entries in one list; and, more importantly, the new 2026 work (CASCADE, MCP-DPT, Fomin) directly shaped three design decisions, which the next section shows.
 
 ---
 
@@ -210,6 +212,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 - Host → server: `tools/call` arguments, allowlists, header ↔ body consistency
 - Server → host: tool results, resource contents, **tool descriptions**, MRTR input requests, notification text
 - `mcp-shield install --host …` routes every stdio and non-OAuth HTTP server through the proxy in one command; third-party OAuth-protected remote servers need the Stage 2 proxy-server pattern (the spec binds tokens to the URL the host connects to)
+- One **engine** per OS user holds the model, the cache, the session taint store and the pins; each stdio server gets a thin front-end that relays to it over a per-user socket / named pipe — so taint follows data across servers and the model loads once
 - Secondary integration (Stage 2): `@shield` decorator / ASGI middleware for people who write servers — stacks with the proxy; the proxy never trusts a server's claim that it already scanned something
 
 **Since Review-1**: the decorator was the product; it could not see other servers' descriptions or results, which is where the attacks live.
@@ -221,7 +224,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 - **Tier 1 — Structural & Policy Gate (<1 ms)**: header allowlist, header ↔ body check, schema, every string argument scanned; typed fields block, others force `strict`
 - **Tier 2 — Cache & Signature Layer (1–5 ms)**: exact-hash fast-accept scoped by `ttlMs`, known-bad fast-reject, DoS guard — never a gate
 - **Tier 3 — Encoder Injection Classifier**: one 86M model, four classes (`benign`, `indirect_injection`, `command_injection`, `description_poisoning`); ≤40 ms GPU / ≤200 ms CPU per ≤512-token segment; abstain band
-- **Around it**: session taint state + overlap check + probe detection; capability pinning + description scan + first-contact quarantine; MRTR provenance banner; Spotlighting markers on forwarded text + a versioned host prompt rule set (`H-1`–`H-24`) as an advisory layer below the checks
+- **Around it**: session taint state across every server + containment check on high-privilege and cross-server calls + probe detection; capability pinning + description scan + first-contact quarantine; MRTR provenance banner; Spotlighting markers on forwarded text + a versioned host prompt rule set (`H-1`–`H-24`) as an advisory layer below the checks
 - **Off the hot path (Stage 2)**: Tier 4 explainer SLM → dashboard
 
 ### Slide iv.3 — Why these numbers, and what they mean
@@ -231,7 +234,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 | Stage | Target | Note |
 |:--|:--|:--|
 | Tier 1 | < 1 ms | deterministic |
-| Tier 2 | 1–5 ms | in-process cache |
+| Tier 2 | 1–5 ms | cache inside the engine |
 | Tier 3 | ≤ 40 ms GPU / ≤ 200 ms CPU | per ≤512-token segment, ONNX |
 | End-to-end p95 | < 50 ms GPU · < 250 ms CPU | under a tenth of a 500–2000 ms agent turn |
 
@@ -247,10 +250,10 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 |:--|:--|:--|
 | Tier 1 policy (headers, schema, arguments) | 1 | `SecurityPolicyError` |
 | Tier 2/3 detection (signatures, DoS guard, classifier — including the description scan at list time) | 1 | `SecurityInjectionError` (class + probability, recorded locally) |
-| Session taint + probe detection | 1 (approval flow 2) | `SecurityTaintViolationError` |
+| Session taint + probe detection | 1 (dashboard approve-then-retry; in-host approval 2) | `SecurityTaintViolationError` |
 | Pinning + quarantine (manifest changed after pinning) | 1 | `SecurityTamperingError` |
 
-- Error views by audience: the **host** receives one opaque stub for all four (`Request blocked by MCP-Shield policy (ref …)`); the **dashboard / audit log** get tier, class, probability and segment; the **server** gets nothing. A block is never an oracle — the design does not rely on being hidden, only on not being informative.
+- Error views by audience: the **host** receives one opaque stub for all four (`Request blocked by MCP-Shield policy (ref …)`); the **dashboard / event store** get tier, class, probability and segment; the **server** gets nothing. A block is never an oracle — the design does not rely on being hidden, only on not being informative.
 
 ---
 
@@ -262,18 +265,20 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 
 | Module | Responsibility | Stage |
 |:--|:--|:--|
-| `cli.py` | `doctor` · `install` / `uninstall` · `rules` · `proxy` · `dashboard` · `pull-model` · `pin` · `benchmark` | 1 |
-| `proxy/http.py` | ASGI reverse proxy; header allowlist before body parse; `Host` check + `Origin` allowlist; optional bearer token; `2025-11-25` pass-through (`initialize`, `Mcp-Session-Id`) | 1 |
-| `proxy/stdio.py` | Spawns the wrapped server from CLI/config only; frames JSON-RPC over stdio | 1 |
+| `cli.py` | `doctor` · `install` / `uninstall` · `rules` · `proxy` · `engine` · `dashboard` · `pull-model` · `pin` · `benchmark` | 1 |
+| `engine/` | One per OS user: local IPC (Unix socket / named pipe), session store, HTTP listeners; login item when HTTP entries are routed | 1 |
+| `proxy/http.py` | HTTP listener (ASGI) inside the engine; header allowlist before body parse; `Host` check + `Origin` allowlist; optional bearer token; `2025-11-25` pass-through (`initialize`, `Mcp-Session-Id`) | 1 |
+| `proxy/stdio.py` | stdio front-end: spawns the wrapped server from its own command line only; relays frames to the engine over local IPC | 1 |
 | `cascade/extractor.py` | Untrusted-segment extractor: `(context_prefix, text)` pairs from any message | 1 |
 | `cascade/tier1_policy.py` | Header ↔ body, schema vs pinned `inputSchema`, argument policy, privilege classes | 1 |
 | `cascade/tier2_cache.py` | Exact-hash cleared-content cache (`ttlMs`-scoped), signature set, DoS guard | 1 |
 | `cascade/tier3_classifier.py` | ONNX session (CPU/CUDA/DirectML/CoreML) in a worker thread; chunking, batching, per-document calibration, block + abstain thresholds; fail-closed | 1 |
-| `taint.py` | Session store (`clientInfo` + peer + `traceparent`), decaying taint records, overlap check, probe counters | 1 |
-| `pinning.py` | SHA-256 pin store (SQLite), quarantine state, description-scan hook, known manifests | 1 |
+| `taint.py` | Session store (OAuth subject + `clientInfo` + host identity; `traceparent` recorded, never a partition), decaying taint records with winnowed fingerprints (persisted, so a restart keeps them), containment check incl. cross-server calls, probe counters, approve-then-retry grants | 1 |
+| `pinning.py` | SHA-256 pin store (SQLite, via `store.py`), quarantine state, description-scan hook, known manifests | 1 |
+| `store.py` | SQLite in the per-user data dir: pin tables + event store behind the dashboard (redacted segments, 7-day retention) | 1 |
 | `spotlight.py`, `host_rules.md` | Wraps forwarded untrusted text in provenance markers; the versioned host rule set emitted by `mcp-shield rules --print` / inserted by `install --with-rules` | 1 |
-| `dashboard/` | FastAPI + WebSocket; traffic log, flagged inspector, pin viewer; token on every endpoint | 1 (min) / 2 (full) |
-| `audit.py`, `auth.py` | JSONL audit (raw local, redacted, 7-day retention) + OTLP export of hashes/verdicts; JWKS validation + policy map | 1E |
+| `dashboard/` | FastAPI + WebSocket, served by the engine; traffic log, flagged inspector with per-kind overrides, pin viewer; token on every endpoint | 1 (min) / 2 (full) |
+| `audit.py`, `auth.py` | JSONL audit file + OTLP export of hashes/verdicts; JWKS validation + policy map | 1E |
 | `state_tracker.py`, `decorator.py`, `explainer/` | Drift + loop breaker; `@shield`; Tier 4 providers | 2 |
 | `benchmarks/` | Held-out harness, adaptive set, CI latency baseline | 1 |
 
@@ -282,7 +287,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 **On the slide**
 - `Segment(context_prefix, text, field_path, server, tool)` — what the extractor yields
 - `Verdict(tier, cls, probability, action ∈ {allow, block, abstain})` — what every tier returns
-- `TaintRecord(server, tool, sha256, shingles, embedding, ts)` — what a session remembers
+- `TaintRecord(server, tool, resource, sha256, fingerprints, embedding, ts)` — what a session remembers (winnowed fingerprints: any shared run ≥ 32 characters is found)
 - `Pin(server, tool, sha256, status ∈ {quarantined, accepted, changed})`
 
 ```mermaid
@@ -326,7 +331,7 @@ SecurityConfig(
     explainer=ExplainerProvider.NONE,    # Stage 2: OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC (opt-in)
 )
 ```
-- Same fields in `mcp-shield.toml`; per-tool `[tools.<name>]` sections carry privilege class, root allowlist and `mode = "shell"` (operators allowed, every call strict); Stage 1E adds `[audit]`, `[auth]`, `[policies.<role>]`, `[clients.<name>]`
+- Same fields in `mcp-shield.toml`; per-tool `[tools.<name>]` sections carry privilege class, root allowlist, `requires_approval` and `mode = "shell"` (operators allowed, every call strict); `[taint] allow_flows` lists trusted source → destination pairs; Stage 1E adds `[audit]`, `[auth]`, `[policies.<role>]`, `[clients.<name>]`
 - Dashboard binds `127.0.0.1`, token on every endpoint, `Origin`/`Host` validated — CVE-2025-49596 is the cautionary tale
 
 ---
@@ -341,12 +346,12 @@ SecurityConfig(
 |:--|:--|
 | Task | 4-class sequence classification of one untrusted segment with a context prefix |
 | Classes | `benign` ~85% (≥ 25% hard negatives) · `indirect_injection` ~8% · `command_injection` ~4% · `description_poisoning` ~3% |
-| Training sources | Synthetic MCP-shaped generation (frontier models, structured output, benign twins) · InjecAgent · captured benign traffic from reference servers, ToolBench / xLAM traces · MCP-AttackBench **if released** (bonus, not prerequisite) |
+| Training sources | Synthetic MCP-shaped generation (open-weight generator — Qwen3 — with structured output; benign twins) · InjecAgent · captured benign traffic from reference servers, ToolBench / xLAM traces · MCP-AttackBench **if released** (bonus, not prerequisite) |
 | Hard negatives | Security docs, shell commands in code-review output, innocent uses of "ignore" / "system prompt", **benign imperative tool descriptions**, **host-authored arguments that read like instructions** |
 | Licences & ethics | Licence recorded per source; synthetic data from an open-weight generator (Qwen3, Apache-2.0); adaptive attacks released to researchers only; sandbox accounts for captured traffic |
 | Minimum viable dataset | **≥ 20,000 segments** from sources we control |
 | Held-out (never trained on) | AgentDojo · MCPSecBench · adaptive red-team set · benign replay |
-| Leakage control | Global dedup (MinHash + cosine > 0.92) **before** a grouped, stratified 80/10/10 split; augmentation on train only |
+| Leakage control | Global dedup within each label (MinHash + cosine > 0.92) **before** a grouped, stratified 80/10/10 split — an attack and its benign twin share a group; augmentation on train only |
 | Calibration | Temperature scaling; block threshold at FPR 0.5%; abstain threshold at FPR ≈ 2%; **per-document** calibration (max-pooled chunk score vs a length-adjusted threshold), FPR reported per document |
 | Adversarial training | 2–3 rounds of attacks generated against our own checkpoints (gradient-guided substitutions, LLM paraphrase against the score, obfuscation transforms), validity-filtered, added with benign twins; per-document FPR re-verified each round; adaptive *evaluation* set kept disjoint |
 
@@ -359,19 +364,19 @@ SecurityConfig(
 | Layer | Choice |
 |:--|:--|
 | Language / runtime | Python ≥ 3.10; `asyncio` with `uvloop` (macOS/Linux) / `winloop` (Windows) |
-| Proxy | ASGI app served by `uvicorn`; `httpx` to upstream Streamable HTTP; `asyncio.subprocess` for stdio wrapping; classifier inference in a worker thread |
+| Proxy | One engine per OS user (`asyncio`; local IPC over a Unix socket / named pipe); HTTP listeners are ASGI apps under `uvicorn` inside it; `httpx` to upstream Streamable HTTP; stdio front-ends spawn their server with `asyncio.subprocess`; classifier inference in a worker thread |
 | Protocol support | `2026-07-28` primary; `2025-11-25` hosts/servers passed through during the deprecation window, legacy sampling/elicitation classified like MRTR; Stage 1 fronts stdio, non-OAuth HTTP and self-operated servers |
 | Model | `microsoft/mdeberta-v3-base` (MIT) → fine-tuned with `transformers` + `datasets`; exported with `optimum` → ONNX; fp16 on GPU, int8 on CPU |
 | Inference | `onnxruntime` with CUDA / DirectML / CoreML execution providers; CPU int8 everywhere, an accelerator only when `doctor`'s self-test shows it beats the CPU |
-| Tier 2 & taint | Hashing + exact signatures; embeddings reuse the Tier 3 encoder's pooled vector (no second model); MinHash shingles (`datasketch`) |
-| Storage | SQLite for pin store and audit; in-process LRU for the cache |
+| Tier 2 & taint | Hashing + exact signatures; embeddings reuse the Tier 3 encoder's pooled vector (no second model); winnowed character fingerprints for the taint containment check (a few dozen lines, no dependency); MinHash (`datasketch`) only for dataset dedup |
+| Storage | SQLite in the per-user data dir (pin store + event store behind the dashboard); LRU cache inside the engine; JSONL audit file in Stage 1E |
 | Dashboard | FastAPI + WebSocket + static HTML/JS (D3 / Cytoscape in Stage 2) |
 | Config / packaging | `mcp-shield.toml` (`tomllib`); `pyproject.toml`, `build`, `twine`, PyPI Trusted Publishing; `huggingface_hub` + `platformdirs` |
 | Enterprise basics (1E) | `opentelemetry-sdk` + OTLP exporter; `PyJWT` with JWKS; Docker, docker-compose, Kubernetes sidecar manifest |
 | Testing / CI | `pytest`; GitHub Actions (4-vCPU runner = canonical CPU-only latency baseline) |
-| Data generation | Frontier models via API with `instructor` / `outlines` for structured output |
+| Data generation | Open-weight generator (Qwen3, Apache-2.0) with `instructor` / `outlines` for structured output; a frontier API only after its terms are checked |
 | Hardware | RTX 5060 Ti (training, GPU latency), RTX 3050 4 GB laptop (4 GB training path), CI runner (CPU baseline) |
-| Footprint (estimates, measured in Phase 5) | ≈ 0.6 GB disk CPU-only (≈ 300 MB int8 weights + dependencies) · ≈ 1 GB RAM peak per proxy, 2 GB free minimum · ≥ 2 GB VRAM for fp16 acceleration · Python 3.10–3.12 |
+| Footprint (estimates, measured in Phase 5) | ≈ 0.6 GB disk CPU-only (≈ 300 MB int8 weights + dependencies) · ≈ 1 GB RAM peak for the engine (once per user) + ≈ 30–50 MB per front-end, 2 GB free minimum · ≥ 2 GB VRAM for fp16 acceleration · Python 3.10–3.12 |
 
 ---
 

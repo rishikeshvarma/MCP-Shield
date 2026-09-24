@@ -11,6 +11,7 @@
 - **Role**: primary base paper.
 - **What it establishes**: the first formal security analysis of the MCP specification (v1.0). Three protocol-level vulnerabilities: (1) absence of capability attestation, (2) bidirectional sampling without origin authentication, (3) implicit trust propagation in multi-server configurations. PROTOAMP framework; 847 attack scenarios across five server implementations; MCP amplifies ASR by 23–41% over non-MCP baselines; overall ASR 52.8%; sampling-based attacks 58–72%; one compromised server among five reaches 78.3% ASR with a 72.4% cascade rate.
 - **Its defence, ATTESTMCP**: capability attestation + message authentication; ASR 52.8% → 12.4% (76.5% reduction); median overhead 8.3 ms cold / 2.4 ms warm per message; pinning is explicitly trust-on-first-use.
+- **Also used by this project**: a prompt-only baseline — one system-prompt rule cut cross-server ASR from 61.3% to 47.2%, against 8.7% with protocol-level isolation (§V-C); the isolation–utility trade-off — user-prompted cross-server flow at 31.7% ASR and 87.4% task completion, 94.2% unprotected (Table II); and alert fatigue named as the limit of user prompts (§VI-G). These back the ranking of the host prompt rules ([[Host Prompt Rules]]), the cross-server taint rule (`02` §4) and the approval design (`08` S2-2).
 - **Why it motivates MCP-Shield**: the paper states the residual 12.4% ASR "primarily reflects indirect injection through legitimately-retrieved content" — the content-level surface attestation cannot see. MCP-Shield targets exactly that residual and is complementary to ATTESTMCP.
 
 ---
@@ -107,6 +108,13 @@
 
 ---
 
+## Part IV — Supporting Techniques
+
+**[30] Schleimer, S., Wilkerson, D. S. & Aiken, A.** "Winnowing: Local Algorithms for Document Fingerprinting." Proc. ACM SIGMOD 2003, pp. 76–85. doi:10.1145/872757.872770.
+- Selects a subset of *k*-gram hashes so that any shared substring at least as long as a chosen guarantee threshold is always detected (the algorithm behind the MOSS plagiarism detector), keeping about 2/(w+1) of the hashes for window *w*. Basis for the taint store's fingerprints: containment of tainted text in a tool argument is detected with a guarantee, not a sampled estimate (`02` §4).
+
+---
+
 ## How the survey maps onto the design
 
 |Design element ([[02 - System Architecture & Technical Implementation]])|Supported by|
@@ -115,7 +123,8 @@
 |Encoder classifier on the hot path, not a generative SLM|[5] 2.51 s/call finding, [12], [13]|
 |Adversarial training rounds against our own checkpoints|[27], [28], [29]; limits per [16]|
 |Held-out benchmarks, LOSO, adaptive set|[14], [15], [16]|
-|Session taint state as a deployable approximation|[10], [11]|
+|Session taint state as a deployable approximation|[10], [11]; fingerprints [30]; the cross-server rule and its utility cost [1] (vulnerability 3, Table II)|
+|Host prompt rules ranked below the proxy's own checks|[1] prompt-only baseline, [11]|
 |Pin + scan for descriptions|[1] TOFU discussion, [24]|
 |Tier 1 argument policy for command injection|[21]|
 |Dashboard token on every endpoint|[23]|

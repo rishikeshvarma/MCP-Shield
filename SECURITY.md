@@ -32,7 +32,7 @@ In scope:
 
 - a **bypass**: content that hijacks a host through the proxy without the classifier, taint state, pinning, quarantine or argument policy acting — especially a bypass that works reliably rather than once;
 - an **oracle**: any way for a server or for content to learn *why* something was blocked (tier, class, probability, segment) or to distinguish the proxy from the host on the wire;
-- the proxy's or dashboard's **own surface**: authentication bypass, DNS rebinding, a way to make the proxy spawn a process from a network or dashboard request, raw segments leaking into exported audit data;
+- the proxy's or dashboard's **own surface**: authentication bypass, DNS rebinding, another OS user or a web page reaching the engine's local channel, a way to make the proxy spawn a process from a network, IPC or dashboard request, raw segments leaking into exported audit data;
 - **supply chain**: the model download or checksum verification, the PyPI build pipeline, dependencies;
 - a **false positive with security impact**, for example a legitimate tool being permanently withheld.
 
@@ -72,4 +72,4 @@ Research conducted in good faith under these rules will not be the subject of a 
 - Secret scanning with push protection, Dependabot alerts and updates, CodeQL on every pull request.
 - Classifier weights are downloaded over HTTPS from Hugging Face Hub and verified by SHA-256 before use; no shared download token is ever shipped in the package.
 - PyPI releases are built in CI with Trusted Publishing (OIDC); there is no long-lived PyPI token.
-- Block errors sent to the host are opaque by design; full detail exists only in the local audit log and dashboard.
+- Block errors sent to the host are opaque by design; full detail exists only in the local event store and dashboard.

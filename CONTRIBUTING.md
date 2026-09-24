@@ -7,7 +7,7 @@ MCP-Shield is a student-led research project (KMIT, Department of CSE — AI & M
 ## Ground rules
 
 - **Be honest about numbers.** Every latency, ASR and FPR figure in this repository is a target until the Phase 5 benchmark publishes measured values. Do not add a number to a README, docstring or comment that has not been measured with the harness in `benchmarks/`.
-- **Security-sensitive code gets two reviewers.** Anything under `proxy/`, `cascade/`, `taint.py`, `pinning.py`, `spotlight.py`, `auth.py`, `audit.py`, or `dashboard/` requires review from two maintainers (see `.github/CODEOWNERS`). These are the paths where a subtle bug is a bypass.
+- **Security-sensitive code gets two reviewers.** Anything under `engine/`, `proxy/`, `cascade/`, `taint.py`, `pinning.py`, `store.py`, `spotlight.py`, `auth.py`, `audit.py`, or `dashboard/` requires review from two maintainers (see `.github/CODEOWNERS`). These are the paths where a subtle bug is a bypass.
 - **No attack data in this repository.** Adaptive red-team examples, exploit corpora and captured traffic never go here — not in code, tests, fixtures or issue attachments. Synthetic *benign* fixtures and the public benchmark loaders are fine. The adaptive set is released to researchers on request only (`03` §11).
 - **No secrets, ever.** No API keys, tokens, `.env` files or real credentials, including in test fixtures. Secret scanning with push protection is enabled; a blocked push is a feature.
 - **Report vulnerabilities privately** via [SECURITY.md](SECURITY.md), never in a public issue or PR.
@@ -41,7 +41,7 @@ Python 3.10+ is required. The classifier (`mcp-shield-clf`, ~300 MB ONNX) is dow
 ## What a good PR includes
 
 - Tests. Detection logic needs both a positive case (the attack is caught) and a benign twin (the same shape without the attack is allowed) — false positives are bugs too, and the shipped FPR target is 0.5% per document.
-- No change to the four error classes' *wire* format: the host must continue to receive only `{"code": -32000, "message": "Request blocked by MCP-Shield policy (ref …)"}`. Detail belongs in the audit log and dashboard (`02` §8). A PR that puts a tier, class, probability or segment into the host-facing error will be declined.
+- No change to the four error classes' *wire* format: the host must continue to receive only `{"code": -32000, "message": "Request blocked by MCP-Shield policy (ref …)"}`. Detail belongs in the event store and dashboard (`02` §8). A PR that puts a tier, class, probability or segment into the host-facing error will be declined.
 - No new identifying headers on the server side (`Via`, `X-Forwarded-*`, `User-Agent`, `Server`) — the proxy is transparent to servers by design.
 - Docs updated in the same PR when behaviour changes, including the relevant `Stage` tag.
 - A changelog line in `CHANGELOG.md` under *Unreleased*.
@@ -60,7 +60,8 @@ Python 3.10+ is required. The classifier (`mcp-shield-clf`, ~300 MB ONNX) is dow
 
 - `ruff` for linting and formatting (config in `pyproject.toml`); `mypy --strict` on the package.
 - No `shell=True`, anywhere. Subprocess calls take argument lists. This rule exists because the whole point of Tier 1 is that servers get this wrong.
-- Fail closed: if the model is missing, inference raises, or a config value is unparseable, the proxy blocks server → host content and logs loudly. `--fail-open` exists for development only and is never a default.
+- Only a front-end spawns a process, and only the command on its own command line. Nothing reachable through the engine's IPC channel or the dashboard may start one (`02` §1).
+- Fail closed: if the model is missing, inference raises, a front-end cannot reach the engine, or a config value is unparseable, the proxy blocks server → host content (both directions when the engine is unreachable) and logs loudly. `--fail-open` exists for development only and is never a default.
 - Comments explain *why*, not *what*. Reference the design doc section when a non-obvious constraint applies (`# 02 §2: annotations may only raise a privilege class`).
 
 ## Issues

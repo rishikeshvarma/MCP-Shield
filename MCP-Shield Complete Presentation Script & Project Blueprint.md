@@ -41,11 +41,11 @@ The Model Context Protocol (MCP) has become the standard way to connect Large La
 
 **MCP-Shield** targets exactly that residual. It is a local security proxy (`pip install mcp-shield-llm`, `mcp-shield proxy`) that sits between an MCP host and its servers and inspects **both directions** of JSON-RPC 2.0 traffic through a three-tier cascade with an end-to-end target under **50 milliseconds with a GPU and under 250 milliseconds on a CPU-only laptop**:
 
-- **Tier 1 — Structural & Policy Gate (<1 ms)**: per-client tool allowlist from the `2026-07-28` spec's `Mcp-Method` / `Mcp-Name` headers, header ↔ body consistency, schema conformance, and an argument policy (path canonicalisation, shell-metacharacter rejection, URL allowlists) against parameter-bound command injection.
+- **Tier 1 — Structural & Policy Gate (<1 ms)**: tool allowlist (per client from Stage 1E) from the `2026-07-28` spec's `Mcp-Method` / `Mcp-Name` headers, header ↔ body consistency, schema conformance, and an argument policy (path canonicalisation, shell-metacharacter rejection, URL allowlists) against parameter-bound command injection.
 - **Tier 2 — Cache & Signature Layer (1–5 ms)**: fast-accept of already-cleared content, fast-reject of known-bad signatures, and length/repetition guards against context-length denial of service.
 - **Tier 3 — Encoder Injection Classifier (≤40 ms GPU / ≤200 ms CPU per ≤512-token segment)**: a fine-tuned 86M-parameter mDeBERTa-v3 classifier applied to *every* untrusted text segment — tool results, resources, tool descriptions, server input requests — with four classes: `benign`, `indirect_injection`, `command_injection`, `description_poisoning`.
 
-Around the cascade, MCP-Shield adds **capability pinning with description scanning** (SHA-256 fingerprints catch rug-pulls; the classifier reads descriptions at listing time to catch first-contact poisoning) and **proxy-held session taint state** (untrusted content is remembered outside the LLM, and later high-privilege calls whose arguments overlap it are blocked or sent for human approval). A small **enterprise basics** set — a structured audit log with OpenTelemetry export, Docker / Kubernetes sidecar deployment, and OAuth 2.1 bearer validation with a basic policy map — is scheduled for the end of this semester, behind the core; a sliding-window state tracker, a `@shield` decorator for server authors, and an off-path explainer model follow in Stage 2.
+Around the cascade, MCP-Shield adds **capability pinning with description scanning** (SHA-256 fingerprints catch rug-pulls; the classifier reads descriptions at listing time to catch first-contact poisoning) and **proxy-held session taint state** (untrusted content is remembered outside the LLM across every server, and later high-privilege calls — or any call that carries it to a different remote server — are blocked or held for human approval). A small **enterprise basics** set — a structured audit log with OpenTelemetry export, Docker / Kubernetes sidecar deployment, and OAuth 2.1 bearer validation with a basic policy map — is scheduled for the end of this semester, behind the core; a sliding-window state tracker, a `@shield` decorator for server authors, and an off-path explainer model follow in Stage 2.
 
 **Evaluation status**: we have not yet run a full benchmark pass. We will report attack success rate, false-positive rate, utility retention, and latency on held-out suites (AgentDojo [9], MCPSecBench [2]) that are never used for training, with leave-one-source-out gaps [15], an adaptive red-team set [14][16], and Prompt Guard 2 [12][13] as the baseline. Targets: ASR < 10% on static held-out suites, FPR < 0.5%, utility ≥ 95% of undefended, p95 latency < 50 ms with a GPU and < 250 ms CPU-only.
 
@@ -182,7 +182,7 @@ graph LR
 1. **Inline protocol interception**: a local proxy (`mcp-shield proxy`, Streamable HTTP and stdio) that sees every JSON-RPC message in both directions under the `2026-07-28` spec — including `tools/list` results and MRTR input requests — with no change to host or servers.
 2. **Sub-50 ms hot-path cascade**: structural policy gate → cache/signature layer → fine-tuned 86M encoder classifier, with an end-to-end p95 target under 50 ms with a GPU and under 250 ms on a CPU-only laptop, measured and published.
 3. **Capability pinning + description scanning**: SHA-256 fingerprints per tool re-checked on `toolsListChanged`; classifier scan of descriptions at listing time; `SecurityTamperingError` on change.
-4. **Session taint state**: remember untrusted content outside the LLM; block or gate later `write` / `execute` / `egress` calls whose arguments overlap it (`SecurityTaintViolationError`).
+4. **Session taint state**: remember untrusted content outside the LLM, in one store that spans every server; block or gate later `write` / `execute` / `egress` calls, and any call to a different remote server, whose arguments contain it (`SecurityTaintViolationError`).
 5. **Parameter-injection defence**: Tier 1 argument policy — path canonicalisation, root allowlists, shell-metacharacter rejection, URL allowlists — usable in both the proxy and the `@shield` decorator.
 6. **Empirical validation done right**: ASR, FPR, utility and latency on held-out suites never used in training (AgentDojo, MCPSecBench), leave-one-source-out gaps, an adaptive red-team set, a reproducible CPU-only baseline on a standard CI runner, and Prompt Guard 2 as baseline.
 7. **Enterprise basics without scope creep**: a JSONL audit log with OTLP export, a Docker / Kubernetes sidecar deployment, and OAuth 2.1 bearer validation with a basic policy map — built last (Phase 6) and dropped first if validation runs late, so the core thesis is never at risk.
@@ -346,7 +346,7 @@ graph TD
 
     Pass --> Taint["Session Taint State + probe detection"]
     Abst --> Taint
-    Taint -->|"high-privilege call overlaps tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
+    Taint -->|"high-privilege or cross-server call carries tainted content"| Deny3["BLOCK: SecurityTaintViolationError"]
     Taint --> Pin["Capability Pin Store + Description Scan"]
     Pin -->|"new server, not yet reviewed"| Quar["QUARANTINE: read-class tools only, strict taint"]
     Pin -->|"manifest changed"| Deny4["BLOCK: SecurityTamperingError"]
@@ -358,13 +358,13 @@ graph TD
 ```
 
 [[Multi-Shield-Solution-Architecture.png]]
-_(PNG export of the Mermaid diagram above, regenerated 12 September 2026. The Mermaid source is canonical — re-export whenever it changes.)_
+_(PNG export of the Mermaid diagram above, regenerated 24 September 2026. The Mermaid source is canonical — re-export whenever it changes.)_
 
 ### 7.4 The three tiers, explained simply
 
-- **Tier 1 — Structural & Policy Gate (<1 ms)**: rules, no AI. Is this tool allowed for this client (`Mcp-Method` / `Mcp-Name`)? Do the headers match the body? Do the arguments match the pinned schema? Do paths stay inside their allowed root, and are shell operators (`;`, `|`, `&&`, backticks, `$(` — the POSIX set; cmd / PowerShell operators on Windows) absent from path/command fields? (Every string argument is scanned; a hit outside a typed field forces `strict` policy instead of a block.)
+- **Tier 1 — Structural & Policy Gate (<1 ms)**: rules, no AI. Is this tool allowed (`Mcp-Method` / `Mcp-Name`)? Do the headers match the body? Do the arguments match the pinned schema? Do paths stay inside their allowed root, and are shell operators (`;`, `|`, `&&`, backticks, `$(` — the POSIX set; cmd / PowerShell operators on Windows) absent from path/command fields? (Every string argument is scanned; a hit outside a typed field forces `strict` policy instead of a block.)
 - **Tier 2 — Cache & Signature Layer (1–5 ms)**: have we cleared this exact content before (scoped to server + tool, and to the spec's `ttlMs` for list results)? Does it match a known attack signature? Is it absurdly long or repetitive? Tier 2 is a cache and a tripwire — it never declares *new* text safe.
-- **Tier 3 — Encoder Injection Classifier**: a fine-tuned mDeBERTa-v3-base (~86M backbone, ONNX) reads every untrusted text segment — tool results, resource contents, tool and prompt descriptions, MRTR input requests, free-text arguments — and returns calibrated probabilities over `benign` / `indirect_injection` / `command_injection` / `description_poisoning`. Target: ≤40 ms on GPU, ≤200 ms on CPU per ≤512-token segment — a small fraction of a 500–2000 ms agent turn. Longer content is chunked and batched. Scores just below the block threshold fall into an abstain band: the content passes, but the session is escalated to `strict` and the item is queued for review. Footprint: about 300 MB on disk and about a gigabyte of RAM at peak per proxy — estimates, measured in Phase 5.
+- **Tier 3 — Encoder Injection Classifier**: a fine-tuned mDeBERTa-v3-base (~86M backbone, ONNX) reads every untrusted text segment — tool results, resource contents, tool and prompt descriptions, MRTR input requests, free-text arguments — and returns calibrated probabilities over `benign` / `indirect_injection` / `command_injection` / `description_poisoning`. Target: ≤40 ms on GPU, ≤200 ms on CPU per ≤512-token segment — a small fraction of a 500–2000 ms agent turn. Longer content is chunked and batched. Scores just below the block threshold fall into an abstain band: the content passes, but the session is escalated to `strict` and the item is queued for review. Footprint: about 300 MB on disk and about a gigabyte of RAM at peak for the engine — loaded once, however many servers are proxied — estimates, measured in Phase 5.
 
 **Why not a 7B language model?** Our first design did exactly that and claimed 30–40 ms. Meta's own number for this *86M* encoder lineage is 92.4 ms per 512 tokens on an A100 in unoptimised PyTorch [13]; an independent 2026 study measured a local review LLM at 2.51 s per call and found it changed no outcomes [5]. Encoders are what fit the budget — and they run on CPU (slower, but still under a quarter-second), so no user is left unprotected for lack of a GPU. A generative model survives only as an optional, off-path explainer (Stage 2).
 
@@ -377,7 +377,7 @@ Trained on synthetic MCP-shaped attacks, public attack corpora, and ~85% benign 
 SHA-256 over each tool's canonical JSON at first listing; re-checked on every listing and on `toolsListChanged`; any change withholds the tool and raises `SecurityTamperingError` until re-pinned explicitly. Descriptions and schema strings are also classified at listing time. **Known limitation**: trust-on-first-use, narrowed to trust-on-first-*review* by the quarantine in #7 — the base paper names the same underlying limitation for ATTESTMCP.
 
 #### 3. Session Taint State (Stage 1) + Human Approval (Stage 2)
-Untrusted results are recorded (hash, shingles, embedding) under a session key built from the OAuth subject, `clientInfo`, and transport peer. A later `write` / `execute` / `egress` call whose arguments overlap tainted content raises `SecurityTaintViolationError`; under `strict` policy every such call in a tainted session waits for approval, delivered as an MRTR `input_required` result. **Not cryptographic and not in-band**: tags inside strings do not survive LLM paraphrase and are forgeable, so state lives in the proxy.
+Untrusted results are recorded (hash, winnowed fingerprints, embedding, source resource) in one engine-held store keyed by the OAuth subject, `clientInfo` and the host — not the server, so taint follows data from one server to another. A later `write` / `execute` / `egress` call, or any call that carries tainted content to a different remote server, raises `SecurityTaintViolationError` when its arguments contain that content — containment, not Jaccard, because a stolen key is a tiny fraction of the file it came from. Under `strict` policy every `execute` / `egress` call in a tainted session is held: approved in the dashboard and retried in Stage 1, approved in the host through an MRTR elicitation request in Stage 2. **Not cryptographic and not in-band**: tags inside strings do not survive LLM paraphrase and are forgeable, so state lives in the proxy.
 
 #### 4. Tier 1 Argument Policy (Stage 1)
 The practical defence for the 43% of servers Equixly found command-injectable [21]: canonicalise paths, enforce root allowlists, reject shell metacharacters in path/command fields, allowlist URL schemes and hosts. gVisor is Linux-only, needs Docker/`runsc`, and costs 100 ms–1 s per call — it belongs in the enterprise roadmap, not the default developer install.
@@ -392,13 +392,16 @@ A deterministic JSON walker that yields every untrusted string with a context pr
 A server with no pin yet exposes only `read`-class tools and runs under `strict` taint until the developer reviews its manifest and the classifier's verdicts and accepts them (`mcp-shield pin --accept` or one click in the dashboard); published pins for the reference servers are trusted on match. Turns trust-on-first-use into trust-on-first-*review*.
 
 #### 8. Probe Detection and the Abstain Band (Stage 1)
-A streak of blocks in one session (default 3) escalates it to `strict`; a longer streak (default 10) quarantines the source until a human looks. Classifier scores in the abstain band pass under `strict` and are queued for review. Together they deny the cheap online feedback loop an adaptive attacker needs and stop distribution shift from silently lowering the guard. A block is never an oracle: the server receives nothing, the host only an opaque reference (`Request blocked by MCP-Shield policy (ref …)`), and the reason appears only in the dashboard — so neither the injection's author nor a compromised model can learn which check fired or how confidently. The proxy adds no identifying headers; the design does not rely on being hidden, only on not being informative.
+A streak of blocks in one session (default 3 within 10 minutes) escalates it to `strict`; a longer streak (default 10 within an hour) quarantines the source until a human looks. Classifier scores in the abstain band pass under `strict` and are queued for review. Together they deny the cheap online feedback loop an adaptive attacker needs and stop distribution shift from silently lowering the guard. A block is never an oracle: the server receives nothing, the host only an opaque reference (`Request blocked by MCP-Shield policy (ref …)`), and the reason appears only in the dashboard — so neither the injection's author nor a compromised model can learn which check fired or how confidently. The proxy adds no identifying headers; the design does not rely on being hidden, only on not being informative.
 
 #### 9. Spotlighting Markers + Host Prompt Rules (Stage 1, advisory layer)
 Forwarded tool text is wrapped in `[MCP-Shield: untrusted data from server "…"]` markers (Spotlighting [11]) so the host's own "tool output is data" rule has unambiguous boundaries; `mcp-shield rules --print` emits a versioned instruction set (`H-1`–`H-24`, [[Host Prompt Rules]]) for hosts whose instructions the user controls. Ranked below the classifier, taint and pinning — an instruction layer is what an injection tries to override — so it is free defence in depth, never the primary control.
 
 #### 10. Enterprise Basics (Stage 1E, built last)
 E1 audit log + OTLP export with the spec's trace context; E2 Dockerfile / docker-compose + plain Kubernetes sidecar manifest; E3 OAuth 2.1 bearer validation (JWKS, `iss`/`aud`/`exp`) + basic policy map (subject or role → servers, tools, maximum privilege); E4 per-client config. Cut-line rule: dropped E4 → E3 → E2 if Phase 5 runs late.
+
+#### 11. One Engine, Many Front-ends (Stage 1)
+A host launches every stdio server as its own process, so there is one `mcp-shield proxy` front-end per server. The front-ends are thin: each spawns its server and relays messages over a per-user Unix socket or named pipe to one **engine** that holds the classifier, the cache, the session taint store, the pins and the event store, and serves the dashboard. That is what lets taint follow data from the GitHub server to the mail server, and it loads the model once per machine instead of once per server. The channel belongs to the user — no web page and no other account can reach it — and nothing on it, or on the dashboard, can start a process. A front-end that cannot reach the engine blocks traffic in both directions.
 
 ### 7.6 Feature comparison
 
@@ -416,7 +419,7 @@ E1 audit log + OTLP export with the spec's trace context; E2 Dockerfile / docker
 
 - It is not "bulletproof". Every mechanism has a stated residual risk ([[06 - Fortified Solution & Defense Upgrades]]).
 - Bounded classifiers can be bypassed by adaptive attacks [16]; our weights are open. Adversarial training rounds raise the attacker's cost; they do not remove the class. We report adaptive-set ASR and rely on defence in depth.
-- Taint state catches verbatim and near-verbatim smuggling, not fully paraphrased intent; the principled fix is host-side control-flow separation (CaMeL [10]), which a proxy cannot impose.
+- Taint state catches verbatim and near-verbatim smuggling, not fully paraphrased intent, and is not guaranteed below 32 shared characters; the principled fix is host-side control-flow separation (CaMeL [10]), which a proxy cannot impose.
 - Pinning is trust-on-first-review: quarantine puts a human in front of every new server, but cannot make that human infallible; legitimate server updates also trip the pin and need a guided re-pin.
 - Third-party OAuth-protected remote servers cannot be proxied transparently in Stage 1 — the spec binds tokens to the URL the host connects to; stdio servers, non-OAuth HTTP servers and servers you operate are covered, the OAuth proxy-server pattern is Stage 2.
 - Sessions are per host application, not per conversation; images and other binary content are not inspected.
@@ -445,8 +448,8 @@ _(PNG export of the Mermaid pipeline above, regenerated 12 September 2026 — re
 ### 8.2 Step-by-step
 
 #### Phase 1 — Dataset curation
-- Assemble the training pool: public attack corpora (InjecAgent, MCP-AttackBench if released), synthetic MCP-shaped attacks from frontier models with structured output, and ~85% benign tool traffic with ≥25% hard negatives.
-- **Deduplicate globally, then split** (grouped by source document, stratified by label); augment the training split only.
+- Assemble the training pool: public attack corpora (InjecAgent, MCP-AttackBench if released), synthetic MCP-shaped attacks from an open-weight generator (Qwen3) with structured output, and ~85% benign tool traffic with ≥25% hard negatives.
+- **Deduplicate globally within each label, then split** (grouped by source document — an attack and its benign twin share a group — stratified by label); augment the training split only.
 - Keep AgentDojo, MCPSecBench, and our adaptive red-team set **entirely out** of training and threshold selection.
 
 #### Phase 2 — Classifier fine-tuning & calibration
@@ -456,13 +459,13 @@ _(PNG export of the Mermaid pipeline above, regenerated 12 September 2026 — re
 - Export via `optimum` → ONNX → int8; publish on Hugging Face Hub with a model card.
 
 #### Phase 3 — Proxy & cascade
-- Build `mcp-shield proxy` for Streamable HTTP (ASGI) and stdio; implement the untrusted-segment extractor, Tier 1 (headers, header ↔ body consistency, schema, argument policy), Tier 2 (cleared-content cache scoped by `ttlMs` / `cacheScope`, signatures, DoS guard), and Tier 3 (ONNX classifier with chunking/batching). Handle both protocol revisions during the deprecation window (`initialize` / `Mcp-Session-Id` pass-through, body-only Tier 1 when `Mcp-*` headers are absent, legacy sampling / elicitation requests classified like MRTR). Inference runs in a worker thread so the event loop never stalls; fail-closed when the model is unavailable.
-- Implement `mcp-shield doctor` (execution-provider selection, download, self-test) and `mcp-shield install` (route every server in the host config through the proxy).
+- Build the engine (one per OS user: classifier, cache, taint store, pins, event store, local IPC) and the `mcp-shield proxy` front-ends — stdio front-ends, and Streamable HTTP listeners (ASGI) inside the engine; implement the untrusted-segment extractor, Tier 1 (headers, header ↔ body consistency, schema, argument policy), Tier 2 (cleared-content cache scoped by `ttlMs` / `cacheScope`, signatures, DoS guard), and Tier 3 (ONNX classifier with chunking/batching). Handle both protocol revisions during the deprecation window (`initialize` / `Mcp-Session-Id` pass-through, body-only Tier 1 when `Mcp-*` headers are absent, legacy sampling / elicitation requests classified like MRTR). Inference runs in a worker thread so the event loop never stalls; fail-closed when the model is unavailable.
+- Implement `mcp-shield doctor` (execution-provider selection, download, self-test) and `mcp-shield install` (route every server in the host config through the proxy; register the engine at login when HTTP entries are routed).
 
 #### Phase 4 — Pinning, description scan & session taint
 - SHA-256 pin store per server; re-check on every listing and on `toolsListChanged`; classifier scan of descriptions at listing time; first-contact quarantine until the developer accepts the manifest; known-manifest pins for the reference servers.
-- Session taint state keyed by OAuth subject + `clientInfo` + transport peer; shingle/embedding overlap check on `write` / `execute` / `egress` calls; `strict` policy; probe detection (block streaks escalate, then quarantine).
-- Minimal dashboard: traffic log, flagged-request inspector with exact-hash override, pin viewer — token on every endpoint; the proxy's own listener validates `Host`, rejects browser `Origin` requests, and never spawns a process from a network request.
+- Session taint state keyed by OAuth subject + `clientInfo` + host identity, one store across every server; containment check (winnowed fingerprints) + embedding similarity on `write` / `execute` / `egress` calls and on calls to other remote servers; `strict` policy with dashboard approve-then-retry; probe detection (block streaks escalate, then quarantine).
+- Minimal dashboard: traffic log, flagged-request inspector with overrides scoped to what caught each item (exact-hash allow, allow once, allow flow), pin viewer — token on every endpoint; the proxy's own listener validates `Host`, rejects browser `Origin` requests, and never spawns a process from a network request.
 
 #### Phase 5 — Validation & release
 - Run the held-out harness: ASR and utility on AgentDojo, ASR on MCPSecBench, adaptive red-team ASR, FPR on benign replay, p50/p95 latency on CPU and GPU, Prompt Guard 2 baseline; leave-one-source-out gaps. Latency is additionally measured on a standard 4-vCPU GitHub Actions runner as the reproducible CPU-only baseline.
@@ -511,3 +514,4 @@ Numbering matches [[05 - Literature Survey & Research Papers]], which carries fu
 27. **Madry, A., Makelov, A., Schmidt, L., Tsipras, D. & Vladu, A.** "Towards Deep Learning Models Resistant to Adversarial Attacks." ICLR 2018. arXiv:1706.06083.
 28. **Ebrahimi, J., Rao, A., Lowd, D. & Dou, D.** "HotFlip: White-Box Adversarial Examples for Text Classification." ACL 2018. arXiv:1712.06751.
 29. **Jin, D., Jin, Z., Zhou, J. T. & Szolovits, P.** "Is BERT Really Robust? A Strong Baseline for Natural Language Attack on Text Classification and Entailment." AAAI 2020. arXiv:1907.11932.
+30. **Schleimer, S., Wilkerson, D. S. & Aiken, A.** "Winnowing: Local Algorithms for Document Fingerprinting." ACM SIGMOD, 2003. doi:10.1145/872757.872770.

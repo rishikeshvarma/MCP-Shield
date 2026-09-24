@@ -21,7 +21,7 @@ Goals: hijack the host's behaviour, exfiltrate sensitive context, persist across
 
 1. **Absence of capability attestation** — servers self-assert capabilities in `initialize` (now `server/discover` / `_meta`), and nothing verifies them.
 2. **Bidirectional sampling without origin authentication** — `sampling/createMessage` let servers inject prompts into the host (58–72% ASR in the paper). Sampling is deprecated in `2026-07-28`; its function is replaced by **MRTR `inputRequests`**, which carry server-authored prompts to the client in a new shape. The vector persists; the method name changed.
-3. **Implicit trust propagation in multi-server configurations** — one compromised server reaches 78.3% ASR with a 72.4% cascade rate at five servers.
+3. **Implicit trust propagation in multi-server configurations** — one compromised server reaches 78.3% ASR with a 72.4% cascade rate at five servers. MCP-Shield's answer is proxy-side: one taint store spans every server, and any call that carries tainted content to a different remote server is checked whatever the tool's class (`02` §4).
 
 ATTESTMCP (the paper's fix) addresses (1) and the authentication half of (2)/(3) with attestation and message signing, reducing overall ASR to 12.4%. The paper states the residual "primarily reflects indirect injection through legitimately-retrieved content" — content-level attacks that attestation cannot see. **That residual is MCP-Shield's target**, which is why the two are complementary rather than competing.
 
