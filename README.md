@@ -199,7 +199,7 @@ config = SecurityConfig(
     classifier_model="mcp-shield-clf",        # the single 86M classifier; version pinned via the model card
     taint_policy="standard",                  # "strict": every execute/egress call in a tainted session needs approval
     fpr_target=0.005,                         # picks the shipped operating threshold (FPR <= 0.5%)
-    explainer=ExplainerProvider.NONE,         # Stage 2: OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC — opt-in, own key, off the hot path
+    explainer=ExplainerProvider.NONE,         # Stage 2: LLAMA_CPP | OPENAI | DEEPSEEK | ANTHROPIC — opt-in, off the hot path
 )
 ```
 
@@ -209,9 +209,9 @@ Stage 1 needs nothing beyond `pip install`: the classifier is one ~300 MB ONNX m
 
 |OS|Hot-path runtime|Acceleration if present|Explainer (Stage 2, optional)|
 |:--|:--|:--|:--|
-|**Windows**|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|Ollama (installed only with explicit consent) or opt-in cloud|
-|**macOS**|ONNX Runtime, CPU int8|CoreML where op coverage allows, else CPU|same|
-|**Linux**|ONNX Runtime, CPU int8|CUDA|same|
+|**Windows**|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|llama.cpp `llama-server` — CUDA, Vulkan or CPU build, downloaded only with explicit consent — or opt-in cloud|
+|**macOS**|ONNX Runtime, CPU int8|CoreML where op coverage allows, else CPU|llama.cpp `llama-server` (Metal build) or opt-in cloud|
+|**Linux**|ONNX Runtime, CPU int8|CUDA|llama.cpp `llama-server` — CUDA, Vulkan or CPU build — or opt-in cloud|
 
 All three are in the CI matrix; an accelerator is used only when `doctor`'s self-test shows it beats the CPU on your machine, and `doctor` prints the one-line wheel swap for CUDA / DirectML (the ONNX Runtime wheels are mutually exclusive, so it is never an extra). Details in `07` §6.
 
@@ -235,7 +235,7 @@ Weights come from Hugging Face Hub's free file hosting (`rishikesh/mcp-shield-cl
 |**End-to-end p95 latency** (CPU-only, ≤512-token segments; standard 4-vCPU CI runner)|—|< 250 ms|Pending|
 |**Baseline comparison**: Prompt Guard 2-86M on the same held-out sets (22M for reference)|—|reported|Pending|
 
-Evaluation rules we hold ourselves to: benchmarks used for evaluation are never used for training or threshold selection; we report leave-one-source-out gaps (Fomin et al., 2026) and an adaptive attack set (Bhagwatkar et al., 2025), because static suites saturate. FPR is reported per document, not per chunk. The agent under attack is an open-weight local model (Qwen3 via Ollama) as the primary, with one budget-capped frontier-model run if funds allow — both named in the results.
+Evaluation rules we hold ourselves to: benchmarks used for evaluation are never used for training or threshold selection; we report leave-one-source-out gaps (Fomin et al., 2026) and an adaptive attack set (Bhagwatkar et al., 2025), because static suites saturate. FPR is reported per document, not per chunk. The agent under attack is an open-weight local model (Qwen3, served by llama.cpp's `llama-server`) as the primary, with one budget-capped frontier-model run if funds allow — both named in the results.
 
 For reference only: the base paper's own defence, **ATTESTMCP** — capability attestation and message signing, architecturally different from MCP-Shield — reduced ASR from 52.8% to 12.4% (76.5% reduction) at 8.3 ms cold / 2.4 ms warm per message. That number belongs to ATTESTMCP; the paper attributes the residual 12.4% "primarily" to indirect injection through legitimately-retrieved content, which is the surface MCP-Shield targets. The two are complementary.
 
@@ -247,7 +247,7 @@ For reference only: the base paper's own defence, **ATTESTMCP** — capability a
 |:--|:--|
 |**Stage 1 — Core (this semester, built first)**|`mcp-shield proxy` (stdio servers, non-OAuth HTTP servers, self-operated servers — front-ends + one engine per user) · Tier 1–3 (Tier 3 adversarially trained, with abstain band) · untrusted-segment extractor · pinning + description scan + first-contact quarantine · session taint with the cross-server containment check + probe detection + dashboard approve-then-retry · MRTR provenance banner · Spotlighting markers + host prompt rules · `mcp-shield doctor` / `install` / `rules` · benchmark harness with CI CPU baseline · dashboard (traffic log + flagged inspector + pin viewer) · PyPI release|
 |**Stage 1E — Enterprise Basics (this semester, built last)**|JSONL audit log + OTLP export · Dockerfile / docker-compose + Kubernetes sidecar manifest · OAuth 2.1 bearer validation + basic policy map · per-client config — cut first if validation runs late|
-|**Stage 2**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (Ollama / opt-in cloud) · in-host approval via MRTR elicitation · full dashboard · OAuth proxy-server pattern for third-party OAuth-protected remote servers · gated + rotated weight distribution (option)|
+|**Stage 2**|`@shield` decorator + ASGI middleware · sliding-window state tracker (drift + loop breaker) · Tier 4 explainer (llama.cpp `llama-server` / opt-in cloud) · in-host approval via MRTR elicitation · full dashboard · OAuth proxy-server pattern for third-party OAuth-protected remote servers · gated + rotated weight distribution (option)|
 |**Future — Enterprise Advanced**|Envoy / service-mesh filter · eBPF interception · SIEM connectors (Splunk, Datadog, Sentinel) · IAM sync (Vault, Okta / Entra ID) · gVisor sandboxed execution · dashboard SSO · central policy server|
 
 The step-by-step build plan for Stage 2 and the enterprise items — goals, prerequisites, exit tests, effort — is in [`08 - Build Roadmap - Stage 2 & Enterprise.md`](08%20-%20Build%20Roadmap%20-%20Stage%202%20%26%20Enterprise.md).

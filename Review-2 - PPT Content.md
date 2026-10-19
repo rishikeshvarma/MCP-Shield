@@ -188,7 +188,7 @@ _Figure 1: Six-phase pipeline — Phases 1–5 are Stage 1 Core, Phase 6 is Stag
 | End-to-end p95 latency | **< 50 ms GPU · < 250 ms CPU** | Consumer GPU; standard 4-vCPU CI runner |
 | Baseline | reported | Prompt Guard 2-86M on the same sets |
 
-Rules: benchmarks used for evaluation never touch training or threshold selection; leave-one-source-out gap reported; three seeds, mean ± sd. FPR is reported per document, not per chunk. Agent under attack: an open-weight local model (Qwen3 via Ollama) as primary, one budget-capped frontier-model run if funds allow.
+Rules: benchmarks used for evaluation never touch training or threshold selection; leave-one-source-out gap reported; three seeds, mean ± sd. FPR is reported per document, not per chunk. Agent under attack: an open-weight local model (Qwen3 served by llama.cpp's `llama-server`) as primary, one budget-capped frontier-model run if funds allow.
 
 **Speaker notes**: Fomin et al. showed pooled cross-validation over-reports by 8–16 AUC points and Bhagwatkar et al. showed simple filters saturate the public benchmarks — so we hold out whole suites and add an adaptive set whose numbers will look worse. That is the honest picture, and we would rather present it than a saturated one.
 
@@ -265,7 +265,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 
 | Module | Responsibility | Stage |
 |:--|:--|:--|
-| `cli.py` | `doctor` · `install` / `uninstall` · `rules` · `proxy` · `engine` · `dashboard` · `pull-model` · `pin` · `benchmark` | 1 |
+| `cli.py` | `doctor` · `install` / `uninstall` · `rules` · `proxy` · `engine` · `dashboard` · `pull-model` · `pin` · `explainer` · `benchmark` | 1 |
 | `engine/` | One per OS user: local IPC (Unix socket / named pipe), session store, HTTP listeners; login item when HTTP entries are routed | 1 |
 | `proxy/http.py` | HTTP listener (ASGI) inside the engine; header allowlist before body parse; `Host` check + `Origin` allowlist; optional bearer token; `2025-11-25` pass-through (`initialize`, `Mcp-Session-Id`) | 1 |
 | `proxy/stdio.py` | stdio front-end: spawns the wrapped server from its own command line only; relays frames to the engine over local IPC | 1 |
@@ -279,7 +279,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 | `spotlight.py`, `host_rules.md` | Wraps forwarded untrusted text in provenance markers; the versioned host rule set emitted by `mcp-shield rules --print` / inserted by `install --with-rules` | 1 |
 | `dashboard/` | FastAPI + WebSocket, served by the engine; traffic log, flagged inspector with per-kind overrides, pin viewer; token on every endpoint | 1 (min) / 2 (full) |
 | `audit.py`, `auth.py` | JSONL audit file + OTLP export of hashes/verdicts; JWKS validation + policy map | 1E |
-| `state_tracker.py`, `decorator.py`, `explainer/` | Drift + loop breaker; `@shield`; Tier 4 providers | 2 |
+| `state_tracker.py`, `decorator.py`, `explainer/` | Drift + loop breaker; `@shield`; Tier 4 — `llama-server` setup/start and providers | 2 |
 | `benchmarks/` | Held-out harness, adaptive set, CI latency baseline | 1 |
 
 ### Slide v.2 — Data contracts and one request's path
@@ -328,7 +328,7 @@ SecurityConfig(
     classifier_model="mcp-shield-clf",   # the single 86M classifier, version-pinned
     taint_policy="standard",             # "strict": every execute/egress call in a tainted session needs approval
     fpr_target=0.005,                    # shipped operating threshold (FPR <= 0.5%)
-    explainer=ExplainerProvider.NONE,    # Stage 2: OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC (opt-in)
+    explainer=ExplainerProvider.NONE,    # Stage 2: LLAMA_CPP | OPENAI | DEEPSEEK | ANTHROPIC (opt-in)
 )
 ```
 - Same fields in `mcp-shield.toml`; per-tool `[tools.<name>]` sections carry privilege class, root allowlist, `requires_approval` and `mode = "shell"` (operators allowed, every call strict); `[taint] allow_flows` lists trusted source → destination pairs; Stage 1E adds `[audit]`, `[auth]`, `[policies.<role>]`, `[clients.<name>]`
@@ -368,13 +368,14 @@ SecurityConfig(
 | Protocol support | `2026-07-28` primary; `2025-11-25` hosts/servers passed through during the deprecation window, legacy sampling/elicitation classified like MRTR; Stage 1 fronts stdio, non-OAuth HTTP and self-operated servers |
 | Model | `microsoft/mdeberta-v3-base` (MIT) → fine-tuned with `transformers` + `datasets`; exported with `optimum` → ONNX; fp16 on GPU, int8 on CPU |
 | Inference | `onnxruntime` with CUDA / DirectML / CoreML execution providers; CPU int8 everywhere, an accelerator only when `doctor`'s self-test shows it beats the CPU |
+| Local LLM (Stage 2 explainer, benchmark agent, data generation) | llama.cpp `llama-server` — pinned release, GGUF models from Hugging Face Hub, OpenAI-compatible API, JSON-schema-constrained output; CUDA / Vulkan / Metal / CPU builds; its own process, never inside the engine |
 | Tier 2 & taint | Hashing + exact signatures; embeddings reuse the Tier 3 encoder's pooled vector (no second model); winnowed character fingerprints for the taint containment check (a few dozen lines, no dependency); MinHash (`datasketch`) only for dataset dedup |
 | Storage | SQLite in the per-user data dir (pin store + event store behind the dashboard); LRU cache inside the engine; JSONL audit file in Stage 1E |
 | Dashboard | FastAPI + WebSocket + static HTML/JS (D3 / Cytoscape in Stage 2) |
 | Config / packaging | `mcp-shield.toml` (`tomllib`); `pyproject.toml`, `build`, `twine`, PyPI Trusted Publishing; `huggingface_hub` + `platformdirs` |
 | Enterprise basics (1E) | `opentelemetry-sdk` + OTLP exporter; `PyJWT` with JWKS; Docker, docker-compose, Kubernetes sidecar manifest |
 | Testing / CI | `pytest`; GitHub Actions (4-vCPU runner = canonical CPU-only latency baseline) |
-| Data generation | Open-weight generator (Qwen3, Apache-2.0) with `instructor` / `outlines` for structured output; a frontier API only after its terms are checked |
+| Data generation | Open-weight generator (Qwen3, Apache-2.0) served by `llama-server`, with `instructor` / `outlines` for structured output; a frontier API only after its terms are checked |
 | Hardware | RTX 5060 Ti (training, GPU latency), RTX 3050 4 GB laptop (4 GB training path), CI runner (CPU baseline) |
 | Footprint (estimates, measured in Phase 5) | ≈ 0.6 GB disk CPU-only (≈ 300 MB int8 weights + dependencies) · ≈ 1 GB RAM peak for the engine (once per user) + ≈ 30–50 MB per front-end, 2 GB free minimum · ≥ 2 GB VRAM for fp16 acceleration · Python 3.10–3.12 |
 

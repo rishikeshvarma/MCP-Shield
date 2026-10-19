@@ -97,7 +97,7 @@ graph TD
 
 ### 7. Tier 4 Explainer SLM (Stage 2, optional)
 
-- Local `Qwen3-8B` / `Llama-3.1-8B` via Ollama (consent-gated) or opt-in cloud API; produces the "why was this blocked?" explanation for the dashboard. Never on the hot path; never overrides a block silently.
+- Local `Qwen3-8B` / `Llama-3.1-8B` GGUF served by llama.cpp's `llama-server` in its own process (pinned, checksum-verified, consent-gated download; JSON-schema-constrained output) or opt-in cloud API; produces the "why was this blocked?" explanation for the dashboard. Never on the hot path; never overrides a block silently.
 
 ---
 

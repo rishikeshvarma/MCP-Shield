@@ -94,7 +94,7 @@ Sources are combined in whatever proportion is needed to reach the **class mix i
 
 ### B. Synthetic generation detail
 
-An open-weight generator — Qwen3 by default (§11) — with structured-output enforcement (`instructor` / `outlines`) generates MCP-shaped segments across the four classes, seeded with real tool schemas from reference servers; a frontier API is used only after its terms on training with outputs have been checked. Every generated attack is paired with a *minimal benign twin* (same tool, same shape, no instruction) so the classifier learns the instruction, not the surface form, and **a twin shares its attack's `group_id`**, so the pair always lands on the same side of the split (§5).
+An open-weight generator — Qwen3 by default (§11), served locally by llama.cpp's `llama-server` — with structured-output enforcement (`instructor` / `outlines`) generates MCP-shaped segments across the four classes, seeded with real tool schemas from reference servers; a frontier API is used only after its terms on training with outputs have been checked. Every generated attack is paired with a *minimal benign twin* (same tool, same shape, no instruction) so the classifier learns the instruction, not the surface form, and **a twin shares its attack's `group_id`**, so the pair always lands on the same side of the split (§5).
 
 ### Minimum viable dataset (no external dependency)
 
@@ -199,7 +199,7 @@ Problem-scale reference: 52.8% ASR for unprotected MCP and 12.4% under ATTESTMCP
 
 ### 9.2 The agent under attack
 
-ASR depends heavily on which host model is being attacked. The primary agent is an **open-weight local model** (Qwen3-8B / 14B via Ollama on the RTX 5060 Ti) so every run is free and reproducible; one frontier-model run is added if budget allows, capped in advance; both are reported with the model named.
+ASR depends heavily on which host model is being attacked. The primary agent is an **open-weight local model** (Qwen3-8B / 14B as GGUF files served by llama.cpp's `llama-server` on the RTX 5060 Ti, started with `--jinja` so OpenAI-style tool calls work — the same runtime as the Stage 2 explainer) so every run is free and reproducible; one frontier-model run is added if budget allows, capped in advance; both are reported with the model named.
 
 ### 9.3 Leave-one-source-out (LOSO)
 
@@ -215,8 +215,8 @@ Static benchmarks saturate (Bhagwatkar et al., 2025). We add a small adaptive se
 
 For the dashboard's "why was this blocked?" panel — **not** on the hot path, no latency budget.
 
-- **Model**: `Qwen3-8B` or `Llama-3.1-8B-Instruct`, served by Ollama (installed only with explicit consent, `07` §6) or, opt-in, a cloud API with the user's own key.
-- **Fine-tune (optional)**: QLoRA (`r=16`, `α=32`, dropout `0.05`, 2–3 epochs) on `(blocked segment, Tier 3 class) → (attack-vector tag, one-paragraph explanation)`. Output is constrained to that shape; confidence is *not* a generated field.
+- **Model**: `Qwen3-8B` (default) or `Llama-3.1-8B-Instruct` as a Q4_K_M GGUF, served by llama.cpp's `llama-server` in its own process (downloaded only with explicit consent — `02` §2, Tier 4; `07` §6) or, opt-in, a cloud API with the user's own key.
+- **Fine-tune (optional)**: QLoRA (`r=16`, `α=32`, dropout `0.05`, 2–3 epochs) on `(blocked segment, Tier 3 class) → (attack-vector tag, one-paragraph explanation)`. The adapter is merged and converted with llama.cpp's own tools (`convert_hf_to_gguf.py`, then `llama-quantize` to Q4_K_M), or loaded at run time with `llama-server --lora`. Output is constrained to that shape by a JSON-schema grammar at inference; confidence is *not* a generated field.
 - **Rule**: the explainer can annotate a block; it can never silently reverse one.
 
 ---

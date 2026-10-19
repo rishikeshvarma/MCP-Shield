@@ -152,7 +152,7 @@ graph TD
     Pin --> Spot["Spotlighting: wrap forwarded text in untrusted-data markers"]
     Quar --> Spot
     Spot --> Out["Forward to host / server"]
-    Deny2 -.->|"Stage 2, optional, off the hot path"| T4["Tier 4: Explainer SLM (local Ollama or opt-in cloud) → dashboard"]
+    Deny2 -.->|"Stage 2, optional, off the hot path"| T4["Tier 4: Explainer SLM (local llama.cpp or opt-in cloud) → dashboard"]
 ```
 
 ### Tier 1 — Structural & Policy Gate (<1ms)
@@ -198,7 +198,12 @@ Raises **`SecurityInjectionError`** with the class and probability — recorded 
 
 ### Tier 4 — Explainer SLM (Stage 2, optional, off the hot path)
 
-A generative model (e.g. `Qwen3-8B` / `Llama-3.1-8B` via Ollama, installed only with explicit consent; or a cloud API with the user's own key, opt-in) that produces a one-paragraph explanation and attack-vector tag for items Tier 3 blocked or placed in the abstain band. It feeds the dashboard's flagged-request inspector. It has **no latency budget, never runs inline, and never silently overrides a Tier 3 block**.
+A generative model that produces a one-paragraph explanation and attack-vector tag for items Tier 3 blocked or placed in the abstain band. It feeds the dashboard's flagged-request inspector. It has **no latency budget, never runs inline, and never silently overrides a Tier 3 block**.
+
+- **Runtime — llama.cpp, so MCP-Shield controls every setting.** The local option is an 8B instruct model — `Qwen3-8B` by default (Apache-2.0), `Llama-3.1-8B-Instruct` as an alternative — as a Q4_K_M GGUF file (≈ 5 GB) served by llama.cpp's `llama-server`. MCP-Shield pins one llama.cpp release and the model file, ships their SHA-256 values in the package, and picks the build the way `doctor` picks the classifier's execution provider: CUDA, Vulkan, Metal or CPU, whichever this machine supports (`07` §6). Where no prebuilt build matches, `setup` says so and the user points `[explainer] url` at their own `llama-server`. Nothing is downloaded until the user says yes (`mcp-shield explainer setup`). The alternative is a cloud API with the user's own key, opt-in. llama.cpp is chosen over a managed daemon such as Ollama for control: the release, model file, quantisation, context size, sampling settings and output schema are all set by MCP-Shield, not by another tool's defaults, and the model comes from the same Hugging Face Hub as the classifier.
+- **Its own process, never the engine's.** An 8B model needs 5–6 GB of RAM or VRAM; if it ran out of memory inside the engine it would take the security state down with it, and the engine fails closed. `mcp-shield explainer start`, run from a terminal (or as a login item the user opts into), starts `llama-server` on `127.0.0.1` with a random API key kept in the data directory — a local HTTP service gets the same care as the dashboard (CVE-2025-49596). The engine never spawns it (§1); it calls the server's OpenAI-compatible API, and when the server is down, explanations simply wait.
+- **Controlled output.** Each request carries a JSON schema (`{attack_vector, explanation}`) that `llama-server` enforces as a grammar, so the explainer cannot answer in any other shape; the blocked segment is passed as data inside Spotlighting markers, and the prompt applies host rule H-1.
+- **Bring your own server.** Because the engine speaks the OpenAI-compatible API, `[explainer] url` can point at any compatible local server the user already runs; the managed `llama-server` is the default and the tested path.
 
 ### Canonical latency table (targets — pending benchmark, see README)
 
@@ -262,11 +267,11 @@ SecurityConfig(
     classifier_model="mcp-shield-clf",        # the single 86M classifier shipped in Stage 1 (pinned by version in the model card)
     taint_policy="standard",                  # "standard": block on overlap | "strict": every execute/egress call in a tainted session needs approval
     fpr_target=0.005,                         # selects the shipped operating threshold (default FPR <= 0.5%)
-    explainer=ExplainerProvider.NONE,         # NONE (default) | OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC (Stage 2, opt-in)
+    explainer=ExplainerProvider.NONE,         # NONE (default) | LLAMA_CPP | OPENAI | DEEPSEEK | ANTHROPIC (Stage 2, opt-in)
 )
 ```
 
-The same fields live in `mcp-shield.toml` for the proxy, alongside per-tool sections (`[tools.<name>]`: privilege class, root allowlist, `mode = "shell"`, `requires_approval`) and `[taint] allow_flows` (§4). There is no separate `strict_mode` flag — `taint_policy="strict"` is the strict setting, and every code sample in this vault uses these names.
+The same fields live in `mcp-shield.toml` for the proxy, alongside per-tool sections (`[tools.<name>]`: privilege class, root allowlist, `mode = "shell"`, `requires_approval`) and `[taint] allow_flows` (§4); explainer settings (`provider`, `url`) live in `[explainer]` (§2, Tier 4). There is no separate `strict_mode` flag — `taint_policy="strict"` is the strict setting, and every code sample in this vault uses these names.
 
 ---
 
@@ -297,5 +302,5 @@ The stub is the same for all four classes so that the *kind* of block is not inf
 
 - **Stage 1 — Core (this semester, built first)**: `mcp-shield proxy` (one engine per OS user; stdio front-ends and HTTP listeners), Tier 1–3 (Tier 3 adversarially trained, with the abstain band), untrusted-segment extractor, pin + scan + first-contact quarantine, session taint across servers with the containment check (high-privilege and cross-server calls), probe detection and dashboard approve-then-retry, MRTR provenance banner, Spotlighting markers + host prompt rules, `mcp-shield doctor` / `install` / `rules`, benchmark harness (including the CI CPU-only baseline), minimal dashboard (traffic log + flagged inspector + pin viewer) over the local event store, PyPI release.
 - **Stage 1E — Enterprise Basics (this semester, built last, cut-line protected)**: structured JSONL audit log + OTLP export with `_meta` trace-context propagation; Dockerfile / docker-compose and a plain Kubernetes sidecar manifest; OAuth 2.1 bearer validation at the proxy (JWKS, `iss` / `aud` / `exp`) with a basic policy map (subject or role → allowed servers, tools and maximum privilege class); per-client sections in `mcp-shield.toml`. Built only after Stage 1 Core is benchmarked; if it slips, the thesis is unaffected. Details in `07` §7.
-- **Stage 2 (next semester)**: `@shield` decorator + ASGI middleware, state tracker (drift + loop breaker), Tier 4 explainer, in-host approval via MRTR elicitation, full dashboard (topology map, tool hub, model switcher), the spec's OAuth proxy-server pattern for third-party OAuth-protected remote servers, and gated + rotated weight distribution as an option.
+- **Stage 2 (next semester)**: `@shield` decorator + ASGI middleware, state tracker (drift + loop breaker), Tier 4 explainer (llama.cpp `llama-server` or opt-in cloud), in-host approval via MRTR elicitation, full dashboard (topology map, tool hub, model switcher), the spec's OAuth proxy-server pattern for third-party OAuth-protected remote servers, and gated + rotated weight distribution as an option.
 - **Future — Enterprise Advanced**: Envoy / service-mesh filter, eBPF interception, SIEM connectors (Splunk, Datadog, Sentinel), IAM sync (Vault, Okta / Entra ID), gVisor sandboxing, dashboard SSO, central policy server.

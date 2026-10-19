@@ -33,7 +33,7 @@ In scope:
 - a **bypass**: content that hijacks a host through the proxy without the classifier, taint state, pinning, quarantine or argument policy acting — especially a bypass that works reliably rather than once;
 - an **oracle**: any way for a server or for content to learn *why* something was blocked (tier, class, probability, segment) or to distinguish the proxy from the host on the wire;
 - the proxy's or dashboard's **own surface**: authentication bypass, DNS rebinding, another OS user or a web page reaching the engine's local channel, a way to make the proxy spawn a process from a network, IPC or dashboard request, raw segments leaking into exported audit data;
-- **supply chain**: the model download or checksum verification, the PyPI build pipeline, dependencies;
+- **supply chain**: the model download or checksum verification, the pinned llama.cpp build and GGUF download for the Stage 2 explainer, the PyPI build pipeline, dependencies;
 - a **false positive with security impact**, for example a legitimate tool being permanently withheld.
 
 Out of scope — these are documented limitations, not vulnerabilities (see `README.md` § Known Limitations and `06`):

@@ -7,7 +7,7 @@ MCP-Shield is a student-led research project (KMIT, Department of CSE — AI & M
 ## Ground rules
 
 - **Be honest about numbers.** Every latency, ASR and FPR figure in this repository is a target until the Phase 5 benchmark publishes measured values. Do not add a number to a README, docstring or comment that has not been measured with the harness in `benchmarks/`.
-- **Security-sensitive code gets two reviewers.** Anything under `engine/`, `proxy/`, `cascade/`, `taint.py`, `pinning.py`, `store.py`, `spotlight.py`, `auth.py`, `audit.py`, or `dashboard/` requires review from two maintainers (see `.github/CODEOWNERS`). These are the paths where a subtle bug is a bypass.
+- **Security-sensitive code gets two reviewers.** Anything under `engine/`, `proxy/`, `cascade/`, `taint.py`, `pinning.py`, `store.py`, `spotlight.py`, `auth.py`, `audit.py`, `dashboard/`, or `explainer/` (it downloads and runs a native binary) requires review from two maintainers (see `.github/CODEOWNERS`). These are the paths where a subtle bug is a bypass.
 - **No attack data in this repository.** Adaptive red-team examples, exploit corpora and captured traffic never go here — not in code, tests, fixtures or issue attachments. Synthetic *benign* fixtures and the public benchmark loaders are fine. The adaptive set is released to researchers on request only (`03` §11).
 - **No secrets, ever.** No API keys, tokens, `.env` files or real credentials, including in test fixtures. Secret scanning with push protection is enabled; a blocked push is a feature.
 - **Report vulnerabilities privately** via [SECURITY.md](SECURITY.md), never in a public issue or PR.

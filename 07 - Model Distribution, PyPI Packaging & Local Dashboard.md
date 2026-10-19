@@ -35,7 +35,7 @@ Publishing to PyPI is free. Package name `mcp-shield-llm`, import name `mcp_shie
 mcp-shield-llm/
 ├── src/mcp_shield/
 │   ├── __init__.py            # shield, SecurityConfig, error types
-│   ├── cli.py                 # doctor · install · uninstall · rules · proxy · engine · dashboard · pull-model · pin · benchmark
+│   ├── cli.py                 # doctor · install · uninstall · rules · proxy · engine · dashboard · pull-model · pin · explainer · benchmark
 │   ├── engine/                # Stage 1: one per OS user — model, cache, taint store, pins, event store, dashboard
 │   │   ├── server.py          #   local IPC (Unix socket / named pipe), session store, hosts the HTTP listeners
 │   │   └── autostart.py       #   per-user login item when HTTP entries are routed (launchd · systemd --user · logon task)
@@ -56,7 +56,7 @@ mcp-shield-llm/
 │   ├── auth.py                # Stage 1E: OAuth 2.1 bearer validation (JWKS) + policy map
 │   ├── state_tracker.py       # Stage 2: drift + loop breaker
 │   ├── decorator.py           # Stage 2: @shield + ASGI middleware (Mode B)
-│   ├── explainer/             # Stage 2: Tier 4 providers (ollama, openai, deepseek, anthropic)
+│   ├── explainer/             # Stage 2: Tier 4 — llama-server setup/start (pinned build + GGUF) and providers (llama.cpp, openai, deepseek, anthropic)
 │   └── dashboard/             # FastAPI + static web UI, served by the engine
 │       ├── app.py
 │       └── static/
@@ -182,6 +182,10 @@ mcp-shield pull-model --model mcp-shield-clf
 mcp-shield pin --server github --show
 mcp-shield pin --server github --accept
 
+# Stage 2 — local explainer: download (after asking) the pinned llama.cpp build and GGUF model, then run llama-server
+mcp-shield explainer setup
+mcp-shield explainer start
+
 # Run the held-out evaluation harness
 mcp-shield benchmark --suite agentdojo
 mcp-shield benchmark --suite mcpsecbench
@@ -234,7 +238,7 @@ With an encoder on the hot path, **Stage 1 needs nothing beyond `pip install`**:
 
 Two packaging facts shape this. **ONNX Runtime ships as mutually exclusive wheels** — `onnxruntime` (CPU; every OS, x64 and arm64; the macOS wheel is expected to carry the CoreML EP — verify with `onnxruntime.get_available_providers()` in Phase 1), `onnxruntime-gpu` (CUDA; Linux and Windows) and `onnxruntime-directml` (Windows) — and pip cannot express "replace the CPU wheel", so the package depends on the CPU wheel and an accelerator is a documented swap that `doctor` prints when it detects the device (`pip uninstall onnxruntime && pip install onnxruntime-gpu`), never an extra that would install two wheels side by side; `doctor` warns when it finds two. And **an accelerator is kept only if it wins**: `doctor` runs the self-test on the accelerator and on CPU and keeps CPU when the accelerator is not faster — int8 op coverage on DirectML and CoreML is partial, and a graph split between an accelerator and the CPU can be slower than the CPU alone.
 
-Consent still matters in exactly one place: the **Stage 2 Tier 4 explainer**, which uses Ollama (a separate daemon, installed outside the Python process) or a cloud API (the user's own key). Both are opt-in.
+Consent still matters in exactly one place: the **Stage 2 Tier 4 explainer**, which uses llama.cpp's `llama-server` — a separate process, started only when the user asks, from a pinned and checksum-verified build — or a cloud API (the user's own key). Both are opt-in. llama.cpp is chosen over a managed daemon such as Ollama for control: MCP-Shield pins the release, the GGUF model, the quantisation, context size, sampling settings and output schema instead of inheriting another tool's defaults (`02` §2, Tier 4).
 
 ### `mcp-shield doctor` decision flow
 
@@ -259,20 +263,21 @@ graph TD
 
     Bench --> Explainer{"Stage 2: enable Tier 4 explainer?"}
     Explainer -->|"No (default)"| Done["Ready — Stage 1 protection active"]
-    Explainer -->|"Local: Ollama installed?"| OllamaYes["Use local Ollama (Qwen3-8B / Llama-3.1-8B)"]
-    Explainer -->|"Local: not installed"| Consent{"Ask consent to install Ollama"}
-    Consent -->|Granted| Install["Install via winget / brew / apt (or show manual link)"] --> OllamaYes
+    Explainer -->|"Local: llama.cpp"| Have{"Pinned llama-server build + GGUF present?"}
+    Have -->|Yes| LlamaYes["mcp-shield explainer start: llama-server on 127.0.0.1, random API key, its own process"]
+    Have -->|No| Consent{"Ask consent to download the llama.cpp build + GGUF model (≈ 5 GB)"}
+    Consent -->|Granted| Fetch["Download for this machine's backend (CUDA / Vulkan / Metal / CPU) → verify SHA-256"] --> LlamaYes
     Consent -->|Declined| Done
     Explainer -->|"Cloud: own API key"| Cloud["Opt-in cloud provider (DeepSeek / OpenAI / Anthropic)"]
-    OllamaYes --> Done
+    LlamaYes --> Done
     Cloud --> Done
 ```
 
 |OS|Event loop|Hot-path runtime (Stage 1)|Acceleration if present|Explainer (Stage 2, optional)|
 |:--|:--|:--|:--|:--|
-|**Windows**|`winloop` (`uvloop` does not run on Windows)|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|Ollama (consent-gated install) or opt-in cloud|
-|**macOS**|`uvloop`|ONNX Runtime, CPU int8|CoreML where op coverage allows, else CPU|same|
-|**Linux**|`uvloop`|ONNX Runtime, CPU int8|CUDA|same|
+|**Windows**|`winloop` (`uvloop` does not run on Windows)|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|llama.cpp `llama-server` — CUDA, Vulkan or CPU build (consent-gated download) — or opt-in cloud|
+|**macOS**|`uvloop`|ONNX Runtime, CPU int8|CoreML where op coverage allows, else CPU|llama.cpp `llama-server` (Metal build) or opt-in cloud|
+|**Linux**|`uvloop`|ONNX Runtime, CPU int8|CUDA|llama.cpp `llama-server` — CUDA, Vulkan or CPU build — or opt-in cloud|
 
 Detection is capability-based — "a CUDA device", "a DX12 device", "Apple Silicon" — never a list of named GPUs. The RTX 5060 Ti / RTX 3050 mentioned in `03` are our own dev machines, not a supported-hardware list. All three operating systems are in the CI matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`, Python 3.10 and 3.12): "runs on" is a design claim until that matrix is green, and Phase 3 verifies the host-config paths and the stdio wrapping on each OS by hand.
 
@@ -287,7 +292,7 @@ The classifier loads once, in the engine — one per OS user, however many serve
 |**RAM**|≈ 0.6 GB resident for the engine, ≈ **1 GB peak** while a batch of 512-token chunks is classified, plus ≈ 30–50 MB per front-end; **2 GB free minimum, 4 GB recommended**|host RAM the same; ≈ 1 GB of VRAM for the fp16 weights plus activations — any GPU with **≥ 2 GB VRAM**|the model is loaded once per OS user, in the engine; front-ends never load it|
 |**CPU**|any x64 or arm64; the < 250 ms target is defined on a 4-vCPU x64 runner and scales with core count and AVX2 / VNNI support|—|a 2-core or older machine still runs everything, slower; `doctor`'s self-test reports the real number for that machine|
 |**Network**|one download of the weights (≈ 300 MB int8 or ≈ 550 MB fp16); nothing on the hot path afterwards|same|—|
-|**Stage 2 explainer** (optional)|not part of the Stage 1 minimum: a local 8B model through Ollama needs ≈ 5–6 GB of RAM or VRAM on its own|||
+|**Stage 2 explainer** (optional)|not part of the Stage 1 minimum: an 8B model as a Q4_K_M GGUF (≈ 5 GB on disk) under `llama-server` needs ≈ 5–6 GB of RAM or VRAM on its own, plus the llama.cpp build|||
 
 These are estimates from the model size and the runtime's usual overhead, not measurements. Phase 5 records peak resident memory, VRAM and disk on the CI runner and on the team's laptops next to the latency numbers, and the model card and README carry the measured figures. `doctor` checks free memory before loading the model and warns when it is below the peak figure; a model that then fails to load is the fail-closed case of `02` §2, never a silent degradation.
 
@@ -300,7 +305,7 @@ config = SecurityConfig(
     classifier_model="mcp-shield-clf",           # the single 86M classifier; version pinned via the model card
     taint_policy="standard",                     # or "strict": every execute/egress call in a tainted session needs approval
     fpr_target=0.005,                            # selects the shipped operating threshold
-    explainer=ExplainerProvider.NONE,            # Stage 2: OLLAMA | OPENAI | DEEPSEEK | ANTHROPIC (own key, opt-in)
+    explainer=ExplainerProvider.NONE,            # Stage 2: LLAMA_CPP | OPENAI | DEEPSEEK | ANTHROPIC (own key, opt-in)
 )
 ```
 
@@ -316,7 +321,7 @@ graph TD
     T3 --> C1["mcp-shield-clf — 86M mDeBERTa-v3-base lineage, the only Stage 1 model"]
 
     T4 --> E0["None (default)"]
-    T4 --> E1["Ollama — Qwen3-8B / Llama-3.1-8B, consent-gated"]
+    T4 --> E1["llama.cpp llama-server — Qwen3-8B / Llama-3.1-8B GGUF, consent-gated download, own process"]
     T4 --> E2["Cloud — DeepSeek / OpenAI / Anthropic, own key"]
 ```
 
@@ -363,6 +368,10 @@ allow_flows   = ["filesystem -> github"]    # trusted source -> destination pair
 file          = "~/.local/share/mcp-shield/audit.jsonl"   # default = the platformdirs data dir for the OS (§1); any path accepted
 otlp_endpoint = "http://localhost:4318"     # optional
 
+[explainer]                                 # Stage 2, opt-in (02 §2, Tier 4)
+provider      = "llama_cpp"                 # none | llama_cpp | openai | deepseek | anthropic
+url           = "http://127.0.0.1:8090/v1"  # the managed llama-server; any OpenAI-compatible local server works
+
 [auth]
 jwks_url = "https://login.example.com/.well-known/jwks.json"
 issuer   = "https://login.example.com/"
@@ -398,7 +407,7 @@ max_privilege   = "write"
 |**Classifier weights (`mcp-shield-clf`)**|Hugging Face Hub|$0|1|Downloaded once to the `platformdirs` cache, SHA-256 verified|
 |**Hot-path runtime**|ONNX Runtime|$0|1|CPU int8 everywhere; CUDA / DirectML / CoreML if present|
 |**Dashboard**|Embedded FastAPI|$0|1 (log + inspector) / 2 (full)|`127.0.0.1:8501`, token on every endpoint|
-|**Tier 4 explainer**|Ollama (local) or cloud API|$0 local / user's key|2|Off the hot path, opt-in|
+|**Tier 4 explainer**|llama.cpp `llama-server` (local, own process) or cloud API|$0 local / user's key|2|Off the hot path, opt-in; pinned build + GGUF, checksum-verified|
 |**`@shield` decorator / ASGI middleware**|In the developer's server|$0|2|Tier 1 + Tier 3 on parsed payloads|
 |**Enterprise basics** (audit log + OTLP, Docker / K8s sidecar manifest, OAuth 2.1 validation + policy map)|In the package|$0|1E|Built after Stage 1 Core is benchmarked; cut first if validation slips|
 |**Enterprise advanced**|Envoy / eBPF / SIEM connectors / IAM sync / gVisor|Enterprise|Future|Roadmap|
