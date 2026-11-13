@@ -15,7 +15,7 @@ The adversary:
 - can inject content into data sources a legitimate server retrieves (web pages, documents, issues, emails), and
 - has **black-box** access to the host application and its LLM, but **white-box** access to MCP-Shield itself — its code and classifier weights are public.
 
-Goals: hijack the host's behaviour, exfiltrate sensitive context, persist across sessions. We add one capability the base paper did not need: the adversary may send **inconsistent `Mcp-Method` / `Mcp-Name` headers and bodies** to any intermediary that trusts headers alone (the spec's `HeaderMismatchError` exists for this reason).
+Goals: hijack the host's behaviour, exfiltrate sensitive context, persist across sessions. We add one capability the base paper did not need: the adversary may send **inconsistent `Mcp-Method` / `Mcp-Name` headers and bodies** to any intermediary that trusts headers alone (the spec's `HeaderMismatch` exists for this reason).
 
 ### The base paper's three protocol-level vulnerabilities (stated accurately)
 
@@ -65,7 +65,7 @@ ATTESTMCP (the paper's fix) addresses (1) and the authentication half of (2)/(3)
 
 ### 6. Header / Body Desync
 * **Mechanism**: `Mcp-Name: read_file` in the header, `"name": "execute_shell"` in the body. Any filter that allowlists on headers alone is bypassed.
-* **MCP-Shield**: Tier 1 parses the body after the header check and rejects mismatches, mirroring `HeaderMismatchError` (`-32020`).
+* **MCP-Shield**: Tier 1 parses the body after the header check and rejects mismatches, mirroring `HeaderMismatch` (`-32020`).
 
 ---
 

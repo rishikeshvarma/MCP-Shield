@@ -32,7 +32,7 @@
 |:--|:--|:--|
 |**Transport Model**|Streamable HTTP with protocol-level sessions (`Mcp-Session-Id`), HTTP+SSE deprecated.|Streamable HTTP with **no protocol-level sessions**; `Mcp-Session-Id` removed (SEP-2567). Servers needing cross-call state use explicit, server-minted handles passed as ordinary tool arguments.|
 |**Handshake**|Mandatory `initialize` / `notifications/initialized`.|**No handshake.** Every request carries `io.modelcontextprotocol/protocolVersion`, `clientCapabilities`, and `clientInfo` in `_meta`; `server/discover` replaces up-front negotiation (SEP-2575).|
-|**Routing Headers**|Tool name only discoverable by parsing the JSON-RPC body.|`Mcp-Method` and `Mcp-Name` **required** on Streamable HTTP POSTs (SEP-2243); a header/body mismatch is a spec error (`HeaderMismatchError`, `-32020`).|
+|**Routing Headers**|Tool name only discoverable by parsing the JSON-RPC body.|`Mcp-Method` and `Mcp-Name` **required** on Streamable HTTP POSTs (SEP-2243); a header/body mismatch is a spec error (`HeaderMismatch`, `-32020`).|
 |**Caching**|`listChanged` notifications only.|`ttlMs` and `cacheScope` required on list/read results (SEP-2549).|
 |**Server-initiated requests**|`sampling/createMessage`, `elicitation/create`, `roots/list` sent by the server.|Replaced by **Multi Round-Trip Requests (MRTR)**: the server returns `resultType: "input_required"` with `inputRequests`; the client retries with `inputResponses` (SEP-2322). **Sampling, Roots, and Logging are deprecated** (SEP-2577, 12-month window).|
 

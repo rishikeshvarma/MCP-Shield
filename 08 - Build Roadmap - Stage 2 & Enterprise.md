@@ -67,10 +67,10 @@ Seven work items, S2-1 to S2-7, ordered by dependency. The first four are the co
 
 **Build steps.**
 1. When a call is held under `strict` or stopped by the taint rule, the proxy answers the host with `resultType: "input_required"` and one **elicitation-type** `inputRequests` entry — the form hosts present to the user, never a sampling-type request, which a host answers with its own model (a hijacked model would approve its own call): *"MCP-Shield: approve call `send_email` to server `mail` with these arguments? (ref 7f3a92c1)"* — the call and its arguments are shown to the **user**; the classifier's verdict is not (no oracle).
-2. Mint a single-use approval token bound to the exact `(session, tool, argument_hash)`; expire it after 5 minutes.
+2. The approval travels as the proxy's own `requestState` — HMAC-signed, bound to the exact `(session, tool, argument_hash)`, valid for 5 minutes. The host retries with a new request carrying the original params plus `inputResponses` and the echoed `requestState`; the proxy verifies and strips both before forwarding the original call once.
 3. On `inputResponses` = approve → forward the original call once; = deny or timeout → return the opaque block stub.
 4. Replay protection: a second call with the same hash needs a new approval; a call with different arguments never reuses one.
-5. Hosts without MRTR support (older revision, or a host that ignores `input_required`): fall back to Stage 1 approve-then-retry in the dashboard, and say so in `doctor`. The pending item is always mirrored in the dashboard, where approving also works; `approval_channel = "dashboard"` turns in-host approval off for users who do not trust their host's handling of elicitation.
+5. Hosts that do not declare elicitation in each request's `_meta["io.modelcontextprotocol/clientCapabilities"]` (the spec forbids an input request for an undeclared capability), and hosts on older revisions: fall back to Stage 1 approve-then-retry in the dashboard, and say so in `doctor`. The pending item is always mirrored in the dashboard, where approving also works; `approval_channel = "dashboard"` turns in-host approval off for users who do not trust their host's handling of elicitation.
 6. Audit every approval and denial with who/when/what; the dashboard's inspector shows the pending queue.
 7. Tests: approve, deny, timeout, replay, argument-change, host-without-MRTR, and an assertion that the approval request is never sampling-type.
 

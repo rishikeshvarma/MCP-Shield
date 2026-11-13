@@ -320,7 +320,7 @@ async def handle_mcp_request(json_rpc_payload: dict):
 |Multi-turn drift|Stateless evaluation|Session taint state (1); sliding-window tracker (2)|1 / 2|Escalates drifting sessions|
 |Post-ingestion data-flow abuse|Text scanners ignore flow|Proxy-held taint + argument overlap; MRTR approval (2)|1 / 2|Blocks smuggling; gates high-privilege calls|
 |Context-length DoS|Nothing measures size upstream|Tier 2 length / repetition guards|1|Blocks before host|
-|Header / body desync|Header-only filters|Tier 1 consistency check (`HeaderMismatchError`)|1|Blocks|
+|Header / body desync|Header-only filters|Tier 1 consistency check (`HeaderMismatch`)|1|Blocks|
 |Cloud latency & cost|Every check is a round trip|Local 86M encoder (ONNX)|1|$0, < 50 ms GPU / < 250 ms CPU target|
 |Privilege misuse by hijacked agent|IAM checks the token only|Stage 1E: OAuth 2.1 validation + basic policy map (subject / role → servers, tools, max privilege)|1E|Limits a hijacked agent to what its human may call; RBAC / IAM sync Future|
 

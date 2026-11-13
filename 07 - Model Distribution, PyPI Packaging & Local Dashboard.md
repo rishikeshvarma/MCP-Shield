@@ -57,7 +57,7 @@ mcp-shield-llm/
 │   ├── state_tracker.py       # Stage 2: drift + loop breaker
 │   ├── decorator.py           # Stage 2: @shield + ASGI middleware (Mode B)
 │   ├── explainer/             # Stage 2: Tier 4 — llama-server setup/start (pinned build + GGUF) and providers (llama.cpp, openai, deepseek, anthropic)
-│   └── dashboard/             # FastAPI + static web UI, served by the engine
+│   └── dashboard/             # Starlette + static web UI, served by the engine
 │       ├── app.py
 │       └── static/
 ├── benchmarks/                # held-out evaluation harness (AgentDojo, MCPSecBench, red-team)
@@ -103,7 +103,7 @@ A monitoring surface for a security product is itself an attack surface. CVE-202
 - **never spawns a process from a web request.** The spec's Security Best Practices single out proxies that spawn stdio servers as an escalation path ("stdio transport security in proxy scenarios"): the dashboard can only record a stdio server as *pending* in `mcp-shield.toml`; it reaches the host's config when the user runs `mcp-shield install` in a terminal, which prints the full command untruncated and asks for confirmation.
 
 ```
-Developer terminal  ──>  mcp-shield dashboard  ──>  the engine serves FastAPI + web UI on http://127.0.0.1:8501/?token=…
+Developer terminal  ──>  mcp-shield dashboard  ──>  the engine serves Starlette + web UI on http://127.0.0.1:8501/?token=…
 ```
 
 ```mermaid
@@ -245,8 +245,8 @@ Consent still matters in exactly one place: the **Stage 2 Tier 4 explainer**, wh
 ```mermaid
 graph TD
     Start["mcp-shield doctor (first run)"] --> OS{"Detect OS"}
-    OS -->|Windows| WLoop["Event loop: winloop"]
-    OS -->|macOS / Linux| ULoop["Event loop: uvloop"]
+    OS -->|Windows| WLoop["Event loop: asyncio Proactor (named pipes, subprocess pipes)"]
+    OS -->|macOS / Linux| ULoop["Event loop: uvloop if installed, else asyncio"]
 
     WLoop --> EP{"Pick ONNX Runtime execution provider (capability-based)"}
     ULoop --> EP
@@ -275,19 +275,19 @@ graph TD
 
 |OS|Event loop|Hot-path runtime (Stage 1)|Acceleration if present|Explainer (Stage 2, optional)|
 |:--|:--|:--|:--|:--|
-|**Windows**|`winloop` (`uvloop` does not run on Windows)|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|llama.cpp `llama-server` — CUDA, Vulkan or CPU build (consent-gated download) — or opt-in cloud|
-|**macOS**|`uvloop`|ONNX Runtime, CPU int8|CoreML where op coverage allows, else CPU|llama.cpp `llama-server` (Metal build) or opt-in cloud|
-|**Linux**|`uvloop`|ONNX Runtime, CPU int8|CUDA|llama.cpp `llama-server` — CUDA, Vulkan or CPU build — or opt-in cloud|
+|**Windows**|asyncio's Proactor loop — needed for named pipes and subprocess pipes (`uvloop` does not run on Windows)|ONNX Runtime, CPU int8|CUDA or DirectML (any DX12 GPU)|llama.cpp `llama-server` — CUDA, Vulkan or CPU build (consent-gated download) — or opt-in cloud|
+|**macOS**|`uvloop` if installed, else asyncio|ONNX Runtime, CPU int8|CoreML where op coverage allows, else CPU|llama.cpp `llama-server` (Metal build) or opt-in cloud|
+|**Linux**|`uvloop` if installed, else asyncio|ONNX Runtime, CPU int8|CUDA|llama.cpp `llama-server` — CUDA, Vulkan or CPU build — or opt-in cloud|
 
-Detection is capability-based — "a CUDA device", "a DX12 device", "Apple Silicon" — never a list of named GPUs. The RTX 5060 Ti / RTX 3050 mentioned in `03` are our own dev machines, not a supported-hardware list. All three operating systems are in the CI matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`, Python 3.10 and 3.12): "runs on" is a design claim until that matrix is green, and Phase 3 verifies the host-config paths and the stdio wrapping on each OS by hand.
+Detection is capability-based — "a CUDA device", "a DX12 device", "Apple Silicon" — never a list of named GPUs. The RTX 5060 Ti / RTX 3050 mentioned in `03` are our own dev machines, not a supported-hardware list. All three operating systems are in the CI matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`, Python 3.10 and 3.13): "runs on" is a design claim until that matrix is green, and Phase 3 verifies the host-config paths and the stdio wrapping on each OS by hand.
 
-The classifier loads once, in the engine — one per OS user, however many servers are proxied. Each front-end is a small Python process without the model (≈ 30–50 MB, estimate), so a host with seven servers costs one model plus seven small processes, not seven models. The engine is the one other piece of per-OS work: its local channel (a Unix domain socket on macOS and Linux, a named pipe on Windows) and, only when the host config has HTTP entries, its login item (a launchd agent, a `systemd --user` unit, a Task Scheduler logon task).
+The classifier loads once, in the engine — one per OS user, however many servers are proxied. Each front-end is a small Python process without the model (≈ 30–50 MB, estimate), so a host with seven servers costs one model plus seven small processes, not seven models. The engine is the one other piece of per-OS work: its local channel (a Unix domain socket on macOS and Linux, a named pipe on Windows) and, only when the host config has HTTP entries, its login item (a launchd agent, a `systemd --user` unit, a Task Scheduler logon task). On Windows a front-end also places its server in a Job Object, so the whole process tree ends with it, and resolves `npx`-style `.cmd` launchers through `PATH` and `PATHEXT`.
 
 ### Minimum requirements (design estimates — measured and published in Phase 5, `03` §9.1)
 
 |Resource|CPU-only (the default)|With an accelerator|Notes|
 |:--|:--|:--|:--|
-|**Python**|3.10 – 3.12|same|the versions in the CI matrix|
+|**Python**|3.10 – 3.13|same|the versions in the CI matrix|
 |**Disk**|≈ **0.6 GB**: int8 weights ≈ 300 MB + tokenizer ≈ 5 MB + Python dependencies ≈ 200–250 MB; keep **1 GB free**|+ fp16 weights ≈ 550 MB; CUDA also needs `onnxruntime-gpu` (≈ 250 MB) and the CUDA / cuDNN runtime libraries if they are not already installed (1–3 GB); DirectML ≈ +100 MB|weights are downloaded once into the `platformdirs` cache; `doctor` prints the exact sizes it found|
 |**RAM**|≈ 0.6 GB resident for the engine, ≈ **1 GB peak** while a batch of 512-token chunks is classified, plus ≈ 30–50 MB per front-end; **2 GB free minimum, 4 GB recommended**|host RAM the same; ≈ 1 GB of VRAM for the fp16 weights plus activations — any GPU with **≥ 2 GB VRAM**|the model is loaded once per OS user, in the engine; front-ends never load it|
 |**CPU**|any x64 or arm64; the < 250 ms target is defined on a 4-vCPU x64 runner and scales with core count and AVX2 / VNNI support|—|a 2-core or older machine still runs everything, slower; `doctor`'s self-test reports the real number for that machine|
@@ -406,7 +406,7 @@ max_privilege   = "write"
 |**`mcp-shield proxy`** (front-ends + engine)|User's machine|$0|1|A stdio front-end per server or an HTTP listener, all attached to one engine per OS user|
 |**Classifier weights (`mcp-shield-clf`)**|Hugging Face Hub|$0|1|Downloaded once to the `platformdirs` cache, SHA-256 verified|
 |**Hot-path runtime**|ONNX Runtime|$0|1|CPU int8 everywhere; CUDA / DirectML / CoreML if present|
-|**Dashboard**|Embedded FastAPI|$0|1 (log + inspector) / 2 (full)|`127.0.0.1:8501`, token on every endpoint|
+|**Dashboard**|Embedded Starlette (ASGI)|$0|1 (log + inspector) / 2 (full)|`127.0.0.1:8501`, token on every endpoint|
 |**Tier 4 explainer**|llama.cpp `llama-server` (local, own process) or cloud API|$0 local / user's key|2|Off the hot path, opt-in; pinned build + GGUF, checksum-verified|
 |**`@shield` decorator / ASGI middleware**|In the developer's server|$0|2|Tier 1 + Tier 3 on parsed payloads|
 |**Enterprise basics** (audit log + OTLP, Docker / K8s sidecar manifest, OAuth 2.1 validation + policy map)|In the package|$0|1E|Built after Stage 1 Core is benchmarked; cut first if validation slips|

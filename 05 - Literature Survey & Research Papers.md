@@ -87,7 +87,7 @@
 ## Part III — Industry Reports, Specifications, and Tools
 
 **[19] Model Context Protocol.** Specification revision `2026-07-28` — "Key Changes" changelog. modelcontextprotocol.io/specification/2026-07-28/changelog.
-- SEP-2567 (sessions removed), SEP-2575 (stateless `_meta`, `server/discover`, `subscriptions/listen`), SEP-2243 (`Mcp-Method` / `Mcp-Name` headers, `HeaderMismatchError`), SEP-2549 (`ttlMs` / `cacheScope`), SEP-2322 (MRTR), SEP-2577 (Sampling / Roots / Logging deprecated).
+- SEP-2567 (sessions removed), SEP-2575 (stateless `_meta`, `server/discover`, `subscriptions/listen`), SEP-2243 (`Mcp-Method` / `Mcp-Name` headers, `HeaderMismatch`), SEP-2549 (`ttlMs` / `cacheScope`), SEP-2322 (MRTR), SEP-2577 (Sampling / Roots / Logging deprecated).
 
 **[20] Model Context Protocol.** "Security Best Practices." modelcontextprotocol.io/specification/2026-07-28/basic/security_best_practices.
 - Confused-deputy patterns, token passthrough, and consent guidance.

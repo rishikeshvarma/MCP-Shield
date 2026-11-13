@@ -147,7 +147,7 @@ Six content-level blind spots it must cover:
 3. Multi-turn state drift (split injections)
 4. Context-length denial of service
 5. Parameter-bound command injection (43% of servers, Equixly)
-6. Header / body desync against header-only filters (`HeaderMismatchError`)
+6. Header / body desync against header-only filters (`HeaderMismatch`)
 
 **Speaker notes**: The spec change made two of these worse, not better: MRTR is the deprecated Sampling vector in a new shape, and the new routing headers create a header-only-filter bypass that the spec itself warns about.
 
@@ -277,7 +277,7 @@ _Figure 2: Deployment: the proxy sits between the host and every MCP server._ ·
 | `pinning.py` | SHA-256 pin store (SQLite, via `store.py`), quarantine state, description-scan hook, known manifests | 1 |
 | `store.py` | SQLite in the per-user data dir: pin tables + event store behind the dashboard (redacted segments, 7-day retention) | 1 |
 | `spotlight.py`, `host_rules.md` | Wraps forwarded untrusted text in provenance markers; the versioned host rule set emitted by `mcp-shield rules --print` / inserted by `install --with-rules` | 1 |
-| `dashboard/` | FastAPI + WebSocket, served by the engine; traffic log, flagged inspector with per-kind overrides, pin viewer; token on every endpoint | 1 (min) / 2 (full) |
+| `dashboard/` | Starlette + WebSocket, served by the engine; traffic log, flagged inspector with per-kind overrides, pin viewer; token on every endpoint | 1 (min) / 2 (full) |
 | `audit.py`, `auth.py` | JSONL audit file + OTLP export of hashes/verdicts; JWKS validation + policy map | 1E |
 | `state_tracker.py`, `decorator.py`, `explainer/` | Drift + loop breaker; `@shield`; Tier 4 — `llama-server` setup/start and providers | 2 |
 | `benchmarks/` | Held-out harness, adaptive set, CI latency baseline | 1 |
@@ -363,7 +363,7 @@ SecurityConfig(
 
 | Layer | Choice |
 |:--|:--|
-| Language / runtime | Python ≥ 3.10; `asyncio` with `uvloop` (macOS/Linux) / `winloop` (Windows) |
+| Language / runtime | Python ≥ 3.10; `asyncio`; `uvloop` on macOS/Linux when installed, the Proactor loop on Windows (named pipes) |
 | Proxy | One engine per OS user (`asyncio`; local IPC over a Unix socket / named pipe); HTTP listeners are ASGI apps under `uvicorn` inside it; `httpx` to upstream Streamable HTTP; stdio front-ends spawn their server with `asyncio.subprocess`; classifier inference in a worker thread |
 | Protocol support | `2026-07-28` primary; `2025-11-25` hosts/servers passed through during the deprecation window, legacy sampling/elicitation classified like MRTR; Stage 1 fronts stdio, non-OAuth HTTP and self-operated servers |
 | Model | `microsoft/mdeberta-v3-base` (MIT) → fine-tuned with `transformers` + `datasets`; exported with `optimum` → ONNX; fp16 on GPU, int8 on CPU |
@@ -371,13 +371,13 @@ SecurityConfig(
 | Local LLM (Stage 2 explainer, benchmark agent, data generation) | llama.cpp `llama-server` — pinned release, GGUF models from Hugging Face Hub, OpenAI-compatible API, JSON-schema-constrained output; CUDA / Vulkan / Metal / CPU builds; its own process, never inside the engine |
 | Tier 2 & taint | Hashing + exact signatures; embeddings reuse the Tier 3 encoder's pooled vector (no second model); winnowed character fingerprints for the taint containment check (a few dozen lines, no dependency); MinHash (`datasketch`) only for dataset dedup |
 | Storage | SQLite in the per-user data dir (pin store + event store behind the dashboard); LRU cache inside the engine; JSONL audit file in Stage 1E |
-| Dashboard | FastAPI + WebSocket + static HTML/JS (D3 / Cytoscape in Stage 2) |
+| Dashboard | Starlette + WebSocket + static HTML/JS (D3 / Cytoscape in Stage 2) |
 | Config / packaging | `mcp-shield.toml` (`tomllib`); `pyproject.toml`, `build`, `twine`, PyPI Trusted Publishing; `huggingface_hub` + `platformdirs` |
 | Enterprise basics (1E) | `opentelemetry-sdk` + OTLP exporter; `PyJWT` with JWKS; Docker, docker-compose, Kubernetes sidecar manifest |
 | Testing / CI | `pytest`; GitHub Actions (4-vCPU runner = canonical CPU-only latency baseline) |
 | Data generation | Open-weight generator (Qwen3, Apache-2.0) served by `llama-server`, with `instructor` / `outlines` for structured output; a frontier API only after its terms are checked |
 | Hardware | RTX 5060 Ti (training, GPU latency), RTX 3050 4 GB laptop (4 GB training path), CI runner (CPU baseline) |
-| Footprint (estimates, measured in Phase 5) | ≈ 0.6 GB disk CPU-only (≈ 300 MB int8 weights + dependencies) · ≈ 1 GB RAM peak for the engine (once per user) + ≈ 30–50 MB per front-end, 2 GB free minimum · ≥ 2 GB VRAM for fp16 acceleration · Python 3.10–3.12 |
+| Footprint (estimates, measured in Phase 5) | ≈ 0.6 GB disk CPU-only (≈ 300 MB int8 weights + dependencies) · ≈ 1 GB RAM peak for the engine (once per user) + ≈ 30–50 MB per front-end, 2 GB free minimum · ≥ 2 GB VRAM for fp16 acceleration · Python 3.10–3.13 |
 
 ---
 
